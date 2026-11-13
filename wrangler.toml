@@ -1,0 +1,10 @@
+name = "coleebri"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = "dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "coleebri-db"
+database_id = "3be3f8d4-632d-42ff-b881-c810a9ea0b81"
+migrations_dir = "migrations"

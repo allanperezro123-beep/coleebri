@@ -1,0 +1,37 @@
+{
+  "name": "coleebri",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Coleebri — Biblioteca académica abierta conectada con SciELO, OpenAlex y Cloudflare Pages + D1, con identidad visual inspirada en el colibrí de la Universidad Pedagógica Nacional de Colombia.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit && tsc -p functions/tsconfig.json --noEmit",
+    "preview": "npx wrangler pages dev dist",
+    "sync:scielo": "tsx scripts/sync-scielo.ts",
+    "db:migrate:local": "wrangler d1 execute coleebri-db --local --file=migrations/0001_init.sql",
+    "db:seed:local": "wrangler d1 execute coleebri-db --local --file=migrations/0002_seed.sql",
+    "db:migrate:remote": "wrangler d1 execute coleebri-db --remote --file=migrations/0001_init.sql",
+    "db:seed:remote": "wrangler d1 execute coleebri-db --remote --file=migrations/0002_seed.sql",
+    "deploy": "npm run build && wrangler pages deploy dist --project-name=coleebri --branch=main"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^5.12.1",
+    "lucide-react": "^1.72.0",
+    "pdfjs-dist": "^6.5.438",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261113.1",
+    "@tailwindcss/vite": "^4.3.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "tailwindcss": "^4.3.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.162.0"
+  }
+}

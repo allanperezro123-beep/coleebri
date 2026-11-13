@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none">
+  <defs>
+    <linearGradient id="coleebriGrad" x1="16" y1="14" x2="104" y2="106" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#2575F0" />
+      <stop offset="55%" stop-color="#1758C4" />
+      <stop offset="100%" stop-color="#0E3E94" />
+    </linearGradient>
+    <linearGradient id="coleebriWing" x1="50" y1="20" x2="96" y2="68" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#3892F8" />
+      <stop offset="100%" stop-color="#1B64D8" />
+    </linearGradient>
+  </defs>
+  <!-- Outer UPN-inspired circular medallion -->
+  <circle cx="60" cy="60" r="54" fill="#FAF9F6" stroke="url(#coleebriGrad)" stroke-width="6.5" />
+  <!-- Upper sweeping head & wing crest (forms P curve) -->
+  <path
+    d="M21 34C36 20 62 15 84 26C95 32 103 44 102 58C94 50 83 45 70 46C61 47 55 54 47 52C37 50 28 42 21 34Z"
+    fill="url(#coleebriWing)"
+  />
+  <!-- Lower left crest under beak -->
+  <path
+    d="M17 43C25 48 34 55 41 62C33 73 27 86 29 97C18 87 13 69 17 43Z"
+    fill="url(#coleebriGrad)"
+  />
+  <!-- Central vertical hummingbird chest / torso (U stem) -->
+  <path
+    d="M46 61C51 57 57 59 59 66C61 76 58 92 50 101C41 96 38 74 46 61Z"
+    fill="url(#coleebriGrad)"
+  />
+  <!-- Right tail & lower wing plumage (N tail) -->
+  <path
+    d="M64 53C78 51 91 57 101 67C98 85 84 100 65 103C72 91 75 78 72 67C69 60 66 57 64 53Z"
+    fill="url(#coleebriGrad)"
+  />
+  <!-- Subtle emerald-jade crest highlight + golden eye -->
+  <circle cx="48" cy="40" r="4.2" fill="#0E3E94" />
+  <circle cx="46.8" cy="38.8" r="1.4" fill="#FAF9F6" />
+  <path d="M58 29C71 26 83 31 91 40" stroke="#2D9B83" stroke-width="3" stroke-linecap="round" opacity="0.7" />
+</svg>
