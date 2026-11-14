@@ -61,17 +61,17 @@ export const OECD_AREA_MAP: Record<OecdAreaId, OecdAreaDefinition> = OECD_AREAS.
 
 const AREA_KEYWORDS: Record<OecdAreaId, RegExp> = {
   'medical-health':
-    /\b(saúde|salud|health|medicin|clínic|clinica|epidemiolog|enferm|psiquiatr|psicolog|depress|sus\b|fiocruz|hospital|covid|pandemia|vacin|vacun|sanitár|sanitar|doença|enfermedad|nutri|dieta|envelhecimento|bioétic|farmac|odontolog|toxicolog)\b/i,
+    /\b(saúde|salud|health|medicin|clínic|clinica|epidemiolog|enferm|psiquiatr|psicolog|depress|sus\b|fiocruz|hospital|covid|pandemia|vacin|vacun|sanitár|sanitar|doença|enfermedad|nutri|dieta|envelhecimento|bioétic|farmac|odontolog|toxicolog)/i,
   'agricultural-sciences':
-    /\b(agríc|agric|agronom|agroecolog|soja|solo|suelo|florest|bosque|zootecni|veterinár|veterinar|pecuár|pecuar|cultivo|semente|semilla|cerrado|botânic|botanic|jbrj|pesca|alimento|rural|safra)\b/i,
+    /\b(agríc|agric|agronom|agroecolog|soja|solo|suelo|florest|bosque|zootecni|veterinár|veterinar|pecuár|pecuar|cultivo|semente|semilla|cerrado|botânic|botanic|jbrj|pesca|alimento|rural|safra)/i,
   'engineering-tech':
-    /\b(engenhari|ingenier|tecnolog|computa|software|algoritm|robótic|robotic|arquitetur|arquitectur|urbano|elétric|electr|energ|material|tv digital|telecom|automação|automatiz|construç|sistema|dados|datos|informátic)\b/i,
+    /\b(engenhari|ingenier|tecnolog|computa|software|algoritm|robótic|robotic|arquitetur|arquitectur|urbano|elétric|electr|energ|material|tv digital|telecom|automação|automatiz|construç|sistema|dados|datos|informátic)/i,
   'natural-sciences':
-    /\b(matemátic|matematic|físic|fisic|químic|quimic|biolog|ecolog|zoolog|biodivers|oceano|marinh|marino|genétic|genetic|estatístic|estadistic|sbmac|clima|ambient|geolog|geograf|astron|botân|microbi)\b/i,
+    /\b(matemátic|matematic|físic|fisic|químic|quimic|biolog|ecolog|zoolog|biodivers|oceano|marinh|marino|genétic|genetic|estatístic|estadistic|sbmac|clima|ambient|geolog|geograf|astron|botân|microbi)/i,
   humanities:
-    /\b(históri|histori|filos[oó]f|l[oó]gic|epistemolog|ontolog|literatur|lingüíst|linguist|letras|arte|músic|music|memóri|memori|patrimôn|patrimon|ética|etica|religi|estétic|estetic|poes|romance|narrativ|cultura|arquivo|archivo|teatro|cinema)\b/i,
+    /\b(históri|histori|filos[oó]f|l[oó]gic|epistemolog|ontolog|literatur|lingüíst|linguist|letras|arte|músic|music|memóri|memori|patrimôn|patrimon|ética|etica|religi|estétic|estetic|poes|romance|narrativ|cultura|arquivo|archivo|teatro|cinema)/i,
   'social-sciences':
-    /\b(educa|ensino|enseñanza|pedagog|social|sociolog|polític|politic|econom|direito|derecho|administra|gestão|gestion|estado|públic|public|comunica|indígen|indigen|demograf|trabalho|trabajo|gênero|genero|antirracis|justiça|justicia|cidadania|ciudadan|fgv|unesp|unicamp|rosario)\b/i
+    /\b(educa|ensino|enseñanza|pedagog|social|sociolog|polític|politic|econom|direito|derecho|administra|gestão|gestion|estado|públic|public|comunica|indígen|indigen|demograf|trabalho|trabajo|gênero|genero|antirracis|justiça|justicia|cidadania|ciudadan|fgv|unesp|unicamp|rosario)/i
 };
 
 const OPENALEX_DOMAIN_TO_OECD: Record<string, OecdAreaId> = {
@@ -190,6 +190,123 @@ const COUNTRY_ISO_MAP: Record<string, string> = {
   PT: 'Portugal'
 };
 
+/**
+ * ISBN registration groups (after the 978/979 prefix) → country. Longest prefix wins.
+ * Source: International ISBN Agency group ranges for Ibero-America.
+ */
+const ISBN_GROUP_COUNTRY: Array<[string, string]> = [
+  ['9972', 'Perú'],
+  ['9974', 'Uruguay'],
+  ['9978', 'Ecuador'],
+  ['9942', 'Ecuador'],
+  ['9968', 'Costa Rica'],
+  ['9977', 'Costa Rica'],
+  ['9930', 'Costa Rica'],
+  ['99905', 'Bolivia'],
+  ['99954', 'Bolivia'],
+  ['99974', 'Bolivia'],
+  ['99925', 'Paraguay'],
+  ['99953', 'Paraguay'],
+  ['99967', 'Paraguay'],
+  ['958', 'Colombia'],
+  ['628', 'Colombia'], // newer Colombian block (2021+)
+  ['607', 'México'],
+  ['968', 'México'],
+  ['970', 'México'],
+  ['950', 'Argentina'],
+  ['987', 'Argentina'],
+  ['631', 'Argentina'], // newer Argentine block
+  ['956', 'Chile'],
+  ['612', 'Perú'],
+  ['959', 'Cuba'],
+  ['980', 'Venezuela'],
+  ['972', 'Portugal'],
+  ['989', 'Portugal'],
+  ['65', 'Brasil'],
+  ['85', 'Brasil'],
+  ['84', 'España']
+].sort((x, y) => y[0].length - x[0].length) as Array<[string, string]>;
+
+export function countryFromIsbn(isbn?: string | null): string | null {
+  if (!isbn) return null;
+  for (const candidate of String(isbn).split(/[;,\s]+/)) {
+    const digits = candidate.replace(/[^0-9Xx]/g, '');
+    if (digits.length !== 13 || !/^97[89]/.test(digits)) continue;
+    const rest = digits.slice(3);
+    for (const [group, country] of ISBN_GROUP_COUNTRY) {
+      if (rest.startsWith(group)) return country;
+    }
+  }
+  return null;
+}
+
+/** Publisher / imprint keywords → country (checked in order; most specific first). */
+const PUBLISHER_COUNTRY: Array<[RegExp, string]> = [
+  [/universidad nacional de rosario|unr editora/i, 'Argentina'],
+  [/universidad del rosario|pedag[oó]gica nacional|javeriana|universidad de antioquia|universidad del valle|santiago de cali|universidad nacional de colombia|universidad de los andes|uniandes|externado|universidad del norte|industrial de santander|eafit|universidad de caldas|universidad de cartagena|universidad del cauca|universidad de nari[ñn]o|uptc|tecnol[oó]gica de pereira|bogot[aá]|medell[ií]n|\bcolombia/i, 'Colombia'],
+  [/\bunam\b|colegio de m[eé]xico|colmex|universidad de guadalajara|ciesas|universidad veracruzana|universidad aut[oó]noma metropolitana|\bm[eé]xico\b/i, 'México'],
+  [/clacso|eudeba|universidad de buenos aires|universidad nacional de la plata|edulp|eduvim|universidad nacional de c[oó]rdoba|buenos aires|\bargentina/i, 'Argentina'],
+  [/universidad de chile|cat[oó]lica de chile|ediciones uc\b|universidad de concepci[oó]n|\bchile\b/i, 'Chile'],
+  [/pucp|cat[oó]lica del per[uú]|universidad de lima|instituto de estudios peruanos|san marcos|\bper[uú]\b/i, 'Perú'],
+  [/universidad de la rep[uú]blica|\buruguay/i, 'Uruguay'],
+  [/universidad de costa rica|\bcosta rica/i, 'Costa Rica'],
+  [/universidad de la habana|\bcuba\b/i, 'Cuba'],
+  [/universidad de murcia|anales de psicolog|\bcsic\b|universidad complutense|\bespa[ñn]a\b/i, 'España'],
+  [/universidade de coimbra|universidade de lisboa|\bportugal/i, 'Portugal'],
+  [/fiocruz|edufba|unesp|eduem|unicamp|\bfgv\b|eduff|ufrgs|edufscar|eduerj|editora unb|edusp|ufmg|edufpb|eduepb|edufrn|edufu|ufsc|edufes|edufal|eduel|edunioeste|editora da |editora ufpr|\beditora\b|\bbrasil\b/i, 'Brasil']
+];
+
+export function countryFromPublisher(publisher?: string | null): string | null {
+  if (!publisher) return null;
+  for (const [pattern, country] of PUBLISHER_COUNTRY) {
+    if (pattern.test(publisher)) return country;
+  }
+  return null;
+}
+
+const REGIONAL_HOST_COUNTRY: Array<[string, string]> = [
+  ['scielo.org.co', 'Colombia'],
+  ['scielo.org.mx', 'México'],
+  ['scielo.org.ar', 'Argentina'],
+  ['scielo.cl', 'Chile'],
+  ['scielo.org.pe', 'Perú'],
+  ['scielo.sld.cu', 'Cuba'],
+  ['scielo.sa.cr', 'Costa Rica'],
+  ['scielo.isciii.es', 'España'],
+  ['scielo.edu.uy', 'Uruguay'],
+  ['scielo.org.ve', 'Venezuela'],
+  ['scielo.org.bo', 'Bolivia'],
+  ['scielo.org.ec', 'Ecuador'],
+  ['scielo.iics.una.py', 'Paraguay'],
+  ['scielo.org.py', 'Paraguay'],
+  ['scielo.pt', 'Portugal'],
+  ['scielo.br', 'Brasil']
+];
+
+/**
+ * Country from STRONG evidence only (ISBN group, regional SciELO host, publisher), or null.
+ * Used to re-classify stored rows without trusting weak fallbacks.
+ */
+export function strongCountrySignal(input: {
+  isbn?: string | null;
+  scieloUrl?: string | null;
+  pdfUrl?: string | null;
+  publisher?: string | null;
+}): string | null {
+  const byIsbn = countryFromIsbn(input.isbn);
+  if (byIsbn) return byIsbn;
+  const urls = `${input.scieloUrl || ''} ${input.pdfUrl || ''}`.toLowerCase();
+  for (const [host, country] of REGIONAL_HOST_COUNTRY) {
+    if (urls.includes(host)) return country;
+  }
+  return countryFromPublisher(input.publisher);
+}
+
+/**
+ * Infers the publication country. Strong signals (OpenAlex ISO code, ISBN group, regional
+ * SciELO host, publisher) win over a previously stored value; the weak "books.scielo.org"
+ * fallback (SciELO Books is hosted in Brazil but publishes all Ibero-America) is last.
+ */
 export function inferCountry(input: {
   country?: string | null;
   countryCode?: string | null;
@@ -198,44 +315,29 @@ export function inferCountry(input: {
   scieloUrl?: string | null;
   pdfUrl?: string | null;
   publisher?: string | null;
+  isbn?: string | null;
 }): string {
-  if (input.country && input.country !== 'Internacional') return input.country;
   const iso = (input.countryCode || '').toUpperCase();
   if (iso && COUNTRY_ISO_MAP[iso]) return COUNTRY_ISO_MAP[iso];
 
-  const col = `${input.collectionCode || ''} ${input.collection || ''}`.toLowerCase();
-  const urls = `${input.scieloUrl || ''} ${input.pdfUrl || ''}`.toLowerCase();
-  const pub = (input.publisher || '').toLowerCase();
-  const all = `${col} ${urls} ${pub}`;
+  const byIsbn = countryFromIsbn(input.isbn);
+  if (byIsbn) return byIsbn;
 
-  if (all.includes('scielo.org.co') || col.includes('colombia') || pub.includes('colombia') || pub.includes('pedagógica nacional') || pub.includes('javeriana') || pub.includes('rosario') && pub.includes('bogot')) {
-    return 'Colombia';
+  const urls = `${input.scieloUrl || ''} ${input.pdfUrl || ''}`.toLowerCase();
+  for (const [host, country] of REGIONAL_HOST_COUNTRY) {
+    if (urls.includes(host)) return country;
   }
-  if (all.includes('scielo.org.mx') || col.includes('méxico') || col.includes('mexico') || pub.includes('unam') || pub.includes('colegio de méxico')) {
-    return 'México';
-  }
-  if (all.includes('scielo.org.ar') || col.includes('argentina') || pub.includes('unr editora') || pub.includes('buenos aires') || pub.includes('eduvm')) {
-    return 'Argentina';
-  }
-  if (all.includes('scielo.cl') || col.includes('chile')) {
-    return 'Chile';
-  }
-  if (all.includes('scielo.org.pe') || col.includes('perú') || col.includes('peru')) {
-    return 'Perú';
-  }
-  if (all.includes('scielo.sld.cu') || col.includes('cuba')) {
-    return 'Cuba';
-  }
-  if (all.includes('scielo.sa.cr') || col.includes('costa rica')) {
-    return 'Costa Rica';
-  }
-  if (all.includes('scielo.isciii.es') || col.includes('españa')) {
-    return 'España';
-  }
-  if (all.includes('scielo.edu.uy') || col.includes('uruguay')) {
-    return 'Uruguay';
-  }
-  if (all.includes('scielo.br') || all.includes('books.scielo.org') || col.includes('brasil') || col.includes('books') || pub.includes('fiocruz') || pub.includes('unesp') || pub.includes('edufba') || pub.includes('eduem') || pub.includes('unicamp') || pub.includes('fgv') || pub.includes('scielo')) {
+
+  const byPublisher = countryFromPublisher(input.publisher);
+  if (byPublisher) return byPublisher;
+
+  if (input.country && input.country !== 'Internacional') return input.country;
+
+  const col = `${input.collectionCode || ''} ${input.collection || ''}`.toLowerCase();
+  const byCollection = countryFromPublisher(col.replace(/\bbooks\b/g, ''));
+  if (byCollection && byCollection !== 'Brasil') return byCollection;
+
+  if (urls.includes('books.scielo.org') || col.includes('brasil') || /\bscielo\b/i.test(input.publisher || '')) {
     return 'Brasil';
   }
   return 'Internacional';

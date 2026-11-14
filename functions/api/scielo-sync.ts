@@ -1,5 +1,7 @@
 import { XMLParser } from 'fast-xml-parser';
-import { CORS_HEADERS, jsonResponse, type Env } from '../types';
+import type { Env } from '../types';
+import { UPSERT_PUBLICATION_SQL, bindPublication, sanitizePublication } from '../publications';
+import { errorResponse, fetchWithTimeout, isAdminRequest, json, politeUserAgent, readJsonBody } from '../security';
 import { classifyOecdArea, inferCountry } from '../../src/lib/taxonomy';
 import type { LanguageCode, Publication } from '../../src/types/publication';
 
@@ -172,30 +174,36 @@ function parseOpdsFeed(xml: string): Publication[] {
   return items;
 }
 
-export const onRequestOptions: PagesFunction<Env> = async () => {
-  return new Response(null, { status: 204, headers: CORS_HEADERS });
-};
+const SYNC_TARGETS = new Set(['books-oai', 'opds', 'scielo-mx', 'scielo-pe']);
+type SyncTarget = 'books-oai' | 'opds' | 'scielo-mx' | 'scielo-pe';
 
+/** Public, read-only status: counts and timestamps only (no internal error text). */
 export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
-  if (!env.DB) {
-    return jsonResponse({ logs: [], d1Connected: false });
-  }
-  const res = await env.DB.prepare('SELECT * FROM sync_logs ORDER BY id DESC LIMIT 10').all();
-  return jsonResponse({ logs: res.results || [], d1Connected: true });
+  if (!env.DB) return json({ logs: [], d1Connected: false });
+  const res = await env.DB.prepare(
+    'SELECT id, source, records_synced, status, synced_at FROM sync_logs ORDER BY id DESC LIMIT 10'
+  ).all();
+  return json({ logs: res.results || [], d1Connected: true }, 200, { 'Cache-Control': 'public, max-age=60' });
 };
 
+/** Harvesting is ADMIN ONLY (Authorization: Bearer <ADMIN_TOKEN>); the bulk harvest lives in `npm run harvest`. */
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
-  const body = (await request.json().catch(() => ({}))) as { target?: 'books-oai' | 'opds' | 'scielo-mx' | 'scielo-pe' };
-  const target = body.target || 'opds';
+  if (!(await isAdminRequest(request, env.ADMIN_TOKEN))) {
+    return errorResponse(403, 'admin_only', 'La sincronización solo puede ejecutarla la administración del sitio.');
+  }
+  const body = await readJsonBody<{ target?: string }>(request, 1024).catch(() => ({ target: undefined }));
+  const target: SyncTarget = SYNC_TARGETS.has(body.target || '') ? (body.target as SyncTarget) : 'opds';
+  const userAgent = politeUserAgent(env.CONTACT_EMAIL);
+  const fetchXml = (url: string) => fetchWithTimeout(url, { headers: { 'User-Agent': userAgent } }, 20_000);
+  const fetchJson = (url: string) =>
+    fetchWithTimeout(url, { headers: { 'User-Agent': userAgent, Accept: 'application/json' } }, 15_000);
 
   const diagnostics: Record<string, unknown> = { target };
   let harvested: Publication[] = [];
 
   try {
     if (target === 'books-oai') {
-      const res = await fetch('https://oai.books.scielo.org/oai-pmh?verb=ListRecords&metadataPrefix=oai_dc', {
-        headers: { 'User-Agent': 'SciELO-Open-Library-Harvester/1.0' }
-      });
+      const res = await fetchXml('https://oai.books.scielo.org/oai-pmh?verb=ListRecords&metadataPrefix=oai_dc');
       if (res.ok) {
         const xml = await res.text();
         harvested = parseOaiRecords(xml, 'SciELO Books', 'books').slice(0, 40);
@@ -203,23 +211,17 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         diagnostics.fallback = `OAI-PMH SSL/HTTP ${res.status}; usando OpenAlex SciELO Books (10.7476)`;
       }
     } else if (target === 'scielo-mx') {
-      const res = await fetch('https://www.scielo.org.mx/oai/scielo-oai.php?verb=ListRecords&metadataPrefix=oai_dc', {
-        headers: { 'User-Agent': 'SciELO-Open-Library-Harvester/1.0' }
-      });
+      const res = await fetchXml('https://www.scielo.org.mx/oai/scielo-oai.php?verb=ListRecords&metadataPrefix=oai_dc');
       if (!res.ok) throw new Error(`SciELO MX OAI HTTP ${res.status}`);
       const xml = await res.text();
       harvested = parseOaiRecords(xml, 'SciELO México', 'scielo-mx').slice(0, 30);
     } else if (target === 'scielo-pe') {
-      const res = await fetch('http://www.scielo.org.pe/oai/scielo-oai.php?verb=ListRecords&metadataPrefix=oai_dc', {
-        headers: { 'User-Agent': 'SciELO-Open-Library-Harvester/1.0' }
-      });
+      const res = await fetchXml('https://www.scielo.org.pe/oai/scielo-oai.php?verb=ListRecords&metadataPrefix=oai_dc');
       if (!res.ok) throw new Error(`SciELO PE OAI HTTP ${res.status}`);
       const xml = await res.text();
       harvested = parseOaiRecords(xml, 'SciELO Perú', 'scielo-pe').slice(0, 30);
     } else {
-      const res = await fetch('https://opds.livros.scielo.org/opds/new', {
-        headers: { 'User-Agent': 'SciELO-Open-Library-Harvester/1.0' }
-      });
+      const res = await fetchXml('https://opds.livros.scielo.org/opds/new');
       if (res.ok) {
         const xml = await res.text();
         harvested = parseOpdsFeed(xml).slice(0, 30);
@@ -230,9 +232,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     // Fallback to OpenAlex SciELO Books, then Crossref 10.7476 if legacy OAI/OPDS TLS cert fails (526) or OpenAlex rate-limits (429)
     if (harvested.length === 0 && (target === 'opds' || target === 'books-oai')) {
-      const oaRes = await fetch(
-        'https://api.openalex.org/works?filter=doi_starts_with:10.7476,has_pdf_url:true,type:book&sort=publication_year:desc&per-page=25',
-        { headers: { 'User-Agent': 'SciELO-Open-Library/1.0 (mailto:research@scielo-open-library.pages.dev)' } }
+      const oaRes = await fetchJson(
+        'https://api.openalex.org/works?filter=doi_starts_with:10.7476,has_pdf_url:true,type:book&sort=publication_year:desc&per-page=25'
       );
       if (oaRes.ok) {
         const oaData = (await oaRes.json()) as {
@@ -289,9 +290,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
           });
       } else {
         diagnostics.openAlexStatus = oaRes.status;
-        const crRes = await fetch(
-          'https://api.crossref.org/prefixes/10.7476/works?filter=type:monograph&rows=25&sort=published&order=desc&mailto=research@scielo-open-library.pages.dev',
-          { headers: { 'User-Agent': 'SciELO-Open-Library/1.0 (mailto:research@scielo-open-library.pages.dev)' } }
+        const crRes = await fetchJson(
+          'https://api.crossref.org/prefixes/10.7476/works?filter=type:monograph&rows=25&sort=published&order=desc'
         );
         if (!crRes.ok) throw new Error(`Crossref fallback HTTP ${crRes.status}`);
         const crData = (await crRes.json()) as {
@@ -342,66 +342,19 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       }
     }
 
-    if (env.DB && harvested.length > 0) {
-      const stmt = env.DB.prepare(`
-        INSERT INTO publications (
-          id, oai_identifier, title, authors_json, publisher, country,
-          collection, collection_code, publication_year, language, doc_type,
-          oecd_area, oecd_area_label, oecd_subarea, abstract, keywords_json,
-          doi, isbn, scielo_url, pdf_url, cover_url, source_origin, raw_set_spec, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-        ON CONFLICT(id) DO UPDATE SET
-          country = CASE WHEN publications.country = 'Internacional' THEN excluded.country ELSE publications.country END,
-          abstract = CASE WHEN length(excluded.abstract) > length(COALESCE(publications.abstract, '')) THEN excluded.abstract ELSE publications.abstract END,
-          cover_url = COALESCE(excluded.cover_url, publications.cover_url),
-          updated_at = datetime('now')
-      `);
-
-      await env.DB.batch(
-        harvested.map((p) =>
-          stmt.bind(
-            p.id,
-            p.oaiIdentifier ?? p.id,
-            p.title,
-            JSON.stringify(p.authors),
-            p.publisher,
-            inferCountry({
-              country: p.country,
-              collectionCode: p.collectionCode,
-              collection: p.collection,
-              scieloUrl: p.scieloUrl,
-              pdfUrl: p.pdfUrl,
-              publisher: p.publisher
-            }),
-            p.collection,
-            p.collectionCode,
-            p.year ?? null,
-            p.language,
-            p.docType,
-            p.oecdArea,
-            p.oecdAreaLabel,
-            p.oecdSubarea ?? null,
-            p.abstract,
-            JSON.stringify(p.keywords),
-            p.doi ?? null,
-            p.isbn ?? null,
-            p.scieloUrl,
-            p.pdfUrl ?? null,
-            p.coverUrl ?? null,
-            p.sourceOrigin,
-            p.rawSetSpec ?? null
-          )
-        )
-      );
-
-      await env.DB.prepare(
-        'INSERT INTO sync_logs (source, records_synced, status, message) VALUES (?, ?, ?, ?)'
-      )
-        .bind(target, harvested.length, 'ok', `Synced ${harvested.length} records from ${target}`)
+    const safe = harvested.map(sanitizePublication).filter((p): p is Publication => p !== null);
+    if (env.DB && safe.length > 0) {
+      const stmt = env.DB.prepare(UPSERT_PUBLICATION_SQL);
+      await env.DB.batch(safe.map((p) => bindPublication(stmt, p)));
+      await env.DB.prepare('INSERT INTO sync_logs (source, records_synced, status, message) VALUES (?, ?, ?, ?)')
+        .bind(target, safe.length, 'ok', `Synced ${safe.length} records from ${target}`)
         .run();
+      // keep the log table bounded
+      await env.DB.prepare('DELETE FROM sync_logs WHERE id NOT IN (SELECT id FROM sync_logs ORDER BY id DESC LIMIT 200)').run();
     }
+    harvested = safe;
 
-    return jsonResponse({
+    return json({
       ok: true,
       synced: harvested.length,
       items: harvested,
@@ -415,6 +368,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         .run()
         .catch(() => undefined);
     }
-    return jsonResponse({ ok: false, error: message, diagnostics }, 502);
+    console.error('[scielo-sync]', target, message);
+    return json({ ok: false, error: 'sync_failed', diagnostics }, 502);
   }
 };

@@ -1,79 +1,91 @@
-import { CORS_HEADERS, jsonResponse, type Env } from '../types';
+import type { Env } from '../types';
+import { errorResponse, fetchWithTimeout, json, politeUserAgent, safeHttpUrl } from '../security';
 
-const ALLOWED_HOST_PATTERN =
-  /^(?:[a-z0-9-]+\.)*(?:scielo\.(?:org|br|cl|pt|edu\.uy|sa\.cr|sld\.cu|isciii\.es)|scielo\.org\.(?:ar|bo|co|ec|mx|pe|py|ve)|scielo\.iics\.una\.py|doabooks\.org|oapen\.org|doi\.org)$/i;
+/**
+ * Same-origin proxy that lets the in-app pdf.js reader open open-access PDFs inline
+ * (no forced downloads, byte ranges, edge cache).
+ *
+ * Hardening:
+ *  - only allowlisted academic hosts, validated again on EVERY redirect hop (no open proxy / SSRF),
+ *  - only `application/pdf` (or raster images for covers) is ever returned — never HTML, SVG or JS,
+ *    so the proxy cannot be abused to host phishing pages or scripts on the coleebri origin,
+ *  - strict size cap, timeouts and a hop limit,
+ *  - upstream headers are NOT passed through except a small safe set.
+ */
 
-const PRIVATE_IP_OR_LOCAL = /^(?:localhost|127\.|10\.|192\.168\.|169\.254\.|172\.(?:1[6-9]|2\d|3[01])\.|\[::1\]|0\.0\.0\.0)/i;
+const MAX_CACHEABLE_BYTES = 25 * 1024 * 1024;
+const MAX_PROXY_BYTES = 120 * 1024 * 1024;
+const MAX_REDIRECTS = 5;
+const MAX_LANDING_HTML_BYTES = 2 * 1024 * 1024;
+const CACHE_NAME = 'coleebri-pdf-v2';
 
-const MAX_CACHEABLE_BYTES = 25 * 1024 * 1024; // 25 MB safe Worker cache threshold
+const ALLOWED_IMAGE_TYPES = /^image\/(?:jpeg|png|webp|gif|avif)$/;
 
-function normalizeTargetUrl(raw: string): URL | null {
-  try {
-    const parsed = new URL(raw);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
-    if (PRIVATE_IP_OR_LOCAL.test(parsed.hostname)) return null;
-    if (!ALLOWED_HOST_PATTERN.test(parsed.hostname)) return null;
+type FetchedTarget = { response: Response; finalUrl: URL };
 
-    // Upgrade known HTTPS SciELO hosts to prevent mixed-content issues
-    if (parsed.protocol === 'http:' && parsed.hostname !== 'oai.books.scielo.org') {
-      parsed.protocol = 'https:';
+/** Follows redirects manually, re-validating each Location against the allowlist. */
+async function fetchAllowlisted(
+  start: URL,
+  init: { method: string; headers: Headers },
+  timeoutMs = 20_000
+): Promise<FetchedTarget | null> {
+  let current = start;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+    const response = await fetchWithTimeout(current.toString(), { ...init, redirect: 'manual' }, timeoutMs);
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('location');
+      await response.body?.cancel().catch(() => undefined);
+      if (!location) return null;
+      let next: URL | null = null;
+      try {
+        next = safeHttpUrl(new URL(location, current).toString());
+      } catch {
+        next = null;
+      }
+      if (!next) return null; // redirect left the trusted academic network
+      current = next;
+      continue;
     }
-    return parsed;
-  } catch {
-    return null;
+    return { response, finalUrl: current };
   }
+  return null;
 }
 
-function parseByteRange(rangeHeader: string, totalLength: number): { start: number; end: number } | null {
-  const match = /^bytes=(\d*)-(\d*)$/i.exec(rangeHeader.trim());
-  if (!match) return null;
-  const startStr = match[1];
-  const endStr = match[2];
-
-  let start = startStr ? Number.parseInt(startStr, 10) : 0;
-  let end = endStr ? Number.parseInt(endStr, 10) : totalLength - 1;
-
-  if (!startStr && endStr) {
-    // Suffix byte-range: bytes=-500
-    const suffixLen = Number.parseInt(endStr, 10);
-    start = Math.max(0, totalLength - suffixLen);
-    end = totalLength - 1;
-  }
-
-  if (Number.isNaN(start) || Number.isNaN(end) || start < 0 || start > end || start >= totalLength) {
-    return null;
-  }
-  end = Math.min(end, totalLength - 1);
-  return { start, end };
+/** TransformStream that errors once more than `maxBytes` have flowed through it. */
+function byteLimiter(maxBytes: number): TransformStream<Uint8Array, Uint8Array> {
+  let seen = 0;
+  return new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      seen += chunk.byteLength;
+      if (seen > maxBytes) {
+        controller.error(new Error('document_too_large'));
+        return;
+      }
+      controller.enqueue(chunk);
+    }
+  });
 }
 
-function buildProxyHeaders(upstream: Headers, extra: Record<string, string> = {}): Headers {
-  const headers = new Headers();
-  const contentType = upstream.get('content-type') || 'application/pdf';
-  headers.set('Content-Type', contentType);
-  headers.set('Accept-Ranges', 'bytes');
-  headers.set('Cache-Control', 'public, max-age=86400, s-maxage=86400');
-
-  const passthrough = ['content-length', 'content-range', 'etag', 'last-modified'];
-  for (const key of passthrough) {
-    const val = upstream.get(key);
-    if (val) headers.set(key, val);
+async function readLimitedText(response: Response, maxBytes: number): Promise<string> {
+  if (!response.body) return '';
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let received = 0;
+  let text = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    received += value.byteLength;
+    text += decoder.decode(value, { stream: true });
+    if (received >= maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      break;
+    }
   }
-
-  for (const [k, v] of Object.entries(CORS_HEADERS)) {
-    headers.set(k, v);
-  }
-  // Never force browser download: strip attachment disposition & frame blocks
-  headers.set('Content-Disposition', 'inline');
-  headers.delete('X-Frame-Options');
-
-  for (const [k, v] of Object.entries(extra)) {
-    headers.set(k, v);
-  }
-  return headers;
+  return text + decoder.decode();
 }
 
-function extractEmbeddedPdfUrl(html: string, baseUrl: string): URL | null {
+function extractEmbeddedPdfUrl(html: string, baseUrl: URL): URL | null {
   const candidates = [
     /<meta[^>]+name=["']citation_pdf_url["'][^>]+content=["']([^"']+)["']/i.exec(html)?.[1],
     /<meta[^>]+content=["']([^"']+\.pdf[^"']*)["'][^>]+name=["']citation_pdf_url["']/i.exec(html)?.[1],
@@ -83,190 +95,211 @@ function extractEmbeddedPdfUrl(html: string, baseUrl: string): URL | null {
 
   for (const candidate of candidates) {
     try {
-      const resolved = new URL(candidate, baseUrl);
-      const valid = normalizeTargetUrl(resolved.toString());
+      const decoded = candidate.replace(/&amp;/g, '&');
+      const valid = safeHttpUrl(new URL(decoded, baseUrl).toString());
       if (valid && valid.hostname !== 'doi.org') return valid;
     } catch {
-      // Ignore malformed candidate URL
+      // ignore malformed candidate
     }
   }
   return null;
 }
 
-export const onRequestOptions: PagesFunction<Env> = async () => {
-  return new Response(null, { status: 204, headers: CORS_HEADERS });
-};
+function parseByteRange(rangeHeader: string, totalLength: number): { start: number; end: number } | null {
+  const match = /^bytes=(\d*)-(\d*)$/i.exec(rangeHeader.trim());
+  if (!match || (!match[1] && !match[2])) return null;
+  let start = match[1] ? Number.parseInt(match[1], 10) : 0;
+  let end = match[2] ? Number.parseInt(match[2], 10) : totalLength - 1;
+  if (!match[1] && match[2]) {
+    start = Math.max(0, totalLength - Number.parseInt(match[2], 10));
+    end = totalLength - 1;
+  }
+  if (Number.isNaN(start) || Number.isNaN(end) || start < 0 || start > end || start >= totalLength) return null;
+  return { start, end: Math.min(end, totalLength - 1) };
+}
+
+/** Builds response headers from scratch: only a safe, explicit subset of upstream metadata is kept. */
+function buildHeaders(upstream: Headers, contentType: string, extra: Record<string, string> = {}): Headers {
+  const headers = new Headers();
+  headers.set('Content-Type', contentType);
+  headers.set('Accept-Ranges', 'bytes');
+  headers.set('Cache-Control', 'public, max-age=86400');
+  headers.set('Content-Disposition', 'inline'); // never force a download
+  for (const key of ['content-length', 'content-range', 'etag', 'last-modified']) {
+    const value = upstream.get(key);
+    if (value) headers.set(key, value);
+  }
+  for (const [k, v] of Object.entries(extra)) headers.set(k, v);
+  return headers;
+}
+
+function classifyContentType(raw: string | null): 'pdf' | 'image' | 'html' | 'other' {
+  const type = (raw || '').split(';')[0].trim().toLowerCase();
+  if (type === 'application/pdf' || type === 'application/x-pdf') return 'pdf';
+  if (ALLOWED_IMAGE_TYPES.test(type)) return 'image';
+  if (type === 'text/html' || type === 'application/xhtml+xml') return 'html';
+  // Some SciELO mirrors label PDFs as octet-stream; accept them only as PDF (pdf.js validates the bytes).
+  if (type === 'application/octet-stream' || type === 'binary/octet-stream') return 'pdf';
+  return 'other';
+}
 
 export const onRequest: PagesFunction<Env> = async (context) => {
-  const { request } = context;
-  if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: CORS_HEADERS });
-  }
+  const { request, env } = context;
   if (request.method !== 'GET' && request.method !== 'HEAD') {
-    return jsonResponse({ error: 'Method not allowed' }, 405);
+    return errorResponse(405, 'method_not_allowed');
   }
 
   const reqUrl = new URL(request.url);
-  const rawTarget = reqUrl.searchParams.get('url');
-  if (!rawTarget) {
-    return jsonResponse({ error: 'Missing required ?url= parameter' }, 400);
-  }
-
-  const targetUrl = normalizeTargetUrl(rawTarget);
+  const targetUrl = safeHttpUrl(reqUrl.searchParams.get('url'));
   if (!targetUrl) {
-    return jsonResponse(
-      {
-        error: 'disallowed_origin',
-        message: 'Only verified SciELO and Open Access academic domains are permitted.'
-      },
+    return json(
+      { error: 'disallowed_origin', message: 'Solo se permiten dominios académicos verificados de SciELO y Acceso Abierto.' },
       403
     );
   }
 
-  const cache = await caches.open('scielo-pdf-v1');
-  const cacheKey = new Request(
-    `${reqUrl.origin}/__pdf_cache?url=${encodeURIComponent(targetUrl.toString())}`,
-    { method: 'GET' }
-  );
+  const cache = await caches.open(CACHE_NAME);
+  const cacheKey = new Request(`${reqUrl.origin}/__pdf_cache?url=${encodeURIComponent(targetUrl.toString())}`, {
+    method: 'GET'
+  });
   const rangeHeader = request.headers.get('Range');
+  const validRangeSyntax = !rangeHeader || /^bytes=\d*-\d*$/i.test(rangeHeader.trim());
+  if (!validRangeSyntax) return errorResponse(416, 'invalid_range');
 
   try {
-    // 1. Check Cloudflare Edge Cache first (only full 200 entries are stored in Cache API)
-    const cachedResponse = await cache.match(cacheKey);
-    if (cachedResponse) {
+    // 1. Edge cache (only full 200 responses of validated content are stored)
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+      const contentType = cached.headers.get('content-type') || 'application/pdf';
       if (request.method === 'HEAD') {
-        return new Response(null, {
-          status: 200,
-          headers: buildProxyHeaders(cachedResponse.headers, { 'X-Edge-Cache': 'HIT' })
-        });
+        await cached.body?.cancel().catch(() => undefined);
+        return new Response(null, { status: 200, headers: buildHeaders(cached.headers, contentType, { 'X-Edge-Cache': 'HIT' }) });
       }
-
       if (rangeHeader) {
-        const totalSizeHeader = cachedResponse.headers.get('content-length');
-        const totalSize = totalSizeHeader ? Number.parseInt(totalSizeHeader, 10) : 0;
-        if (totalSize > 0 && totalSize <= MAX_CACHEABLE_BYTES) {
-          const buf = await cachedResponse.arrayBuffer();
-          const parsedRange = parseByteRange(rangeHeader, buf.byteLength);
-          if (!parsedRange) {
-            return new Response(null, {
-              status: 416,
-              headers: {
-                ...CORS_HEADERS,
-                'Content-Range': `bytes */${buf.byteLength}`
-              }
-            });
-          }
-          const slice = buf.slice(parsedRange.start, parsedRange.end + 1);
-          const headers = buildProxyHeaders(cachedResponse.headers, {
-            'Content-Range': `bytes ${parsedRange.start}-${parsedRange.end}/${buf.byteLength}`,
+        const buf = await cached.arrayBuffer();
+        const range = parseByteRange(rangeHeader, buf.byteLength);
+        if (!range) {
+          return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${buf.byteLength}` } });
+        }
+        const slice = buf.slice(range.start, range.end + 1);
+        return new Response(slice, {
+          status: 206,
+          headers: buildHeaders(cached.headers, contentType, {
+            'Content-Range': `bytes ${range.start}-${range.end}/${buf.byteLength}`,
             'Content-Length': String(slice.byteLength),
             'X-Edge-Cache': 'HIT-RANGE'
-          });
-          return new Response(slice, { status: 206, headers });
-        }
+          })
+        });
       }
-
-      return new Response(cachedResponse.body, {
-        status: 200,
-        headers: buildProxyHeaders(cachedResponse.headers, { 'X-Edge-Cache': 'HIT' })
-      });
+      return new Response(cached.body, { status: 200, headers: buildHeaders(cached.headers, contentType, { 'X-Edge-Cache': 'HIT' }) });
     }
 
-    // 2. Cache MISS -> Fetch from upstream SciELO server
+    // 2. Upstream fetch with per-hop validation
     const upstreamHeaders = new Headers({
-      'User-Agent': 'SciELO-Open-Library-Edge/1.0 (+https://books.scielo.org)',
-      Accept: 'application/pdf,image/*,*/*;q=0.8',
+      'User-Agent': politeUserAgent(env.CONTACT_EMAIL),
+      Accept: 'application/pdf,image/avif,image/webp,image/jpeg,image/png;q=0.9,text/html;q=0.5',
       'Accept-Encoding': 'identity'
     });
-    if (rangeHeader && request.method === 'GET') {
-      upstreamHeaders.set('Range', rangeHeader);
-    }
+    if (rangeHeader && request.method === 'GET') upstreamHeaders.set('Range', rangeHeader);
 
-    let upstreamRes = await fetch(targetUrl.toString(), {
-      method: request.method,
-      headers: upstreamHeaders,
-      redirect: 'follow'
-    });
+    let fetched = await fetchAllowlisted(targetUrl, { method: request.method, headers: upstreamHeaders });
+    if (!fetched) return errorResponse(502, 'redirect_outside_allowlist', 'El enlace redirige fuera de la red académica permitida.');
 
-    if (!upstreamRes.ok && upstreamRes.status !== 206) {
-      return jsonResponse(
-        {
-          error: 'upstream_http_error',
-          status: upstreamRes.status,
-          originalUrl: targetUrl.toString()
-        },
-        upstreamRes.status >= 500 ? 502 : upstreamRes.status
-      );
-    }
+    let kind = classifyContentType(fetched.response.headers.get('content-type'));
 
-    let contentType = (upstreamRes.headers.get('content-type') || '').toLowerCase();
-    // Resolve DOI or SciELO landing HTML pages automatically to their embedded direct PDF link
-    if (contentType.includes('text/html') && request.method === 'GET') {
-      const htmlText = await upstreamRes.text();
-      const embeddedPdf = extractEmbeddedPdfUrl(htmlText, upstreamRes.url || targetUrl.toString());
-      if (embeddedPdf) {
-        const pdfRes = await fetch(embeddedPdf.toString(), {
-          method: 'GET',
-          headers: upstreamHeaders,
-          redirect: 'follow'
-        });
-        if (pdfRes.ok || pdfRes.status === 206) {
-          upstreamRes = pdfRes;
-          contentType = (upstreamRes.headers.get('content-type') || '').toLowerCase();
-        }
+    // DOI / landing page → discover the embedded PDF (citation_pdf_url) and fetch it instead
+    if (kind === 'html' && fetched.response.ok) {
+      const html = await readLimitedText(fetched.response, MAX_LANDING_HTML_BYTES);
+      const embedded = extractEmbeddedPdfUrl(html, fetched.finalUrl);
+      if (!embedded) {
+        return errorResponse(422, 'no_pdf_available', 'Esta obra no ofrece un PDF de texto completo accesible.');
+      }
+      const landingHost = fetched.finalUrl.hostname;
+      const pdfHeaders = new Headers(upstreamHeaders);
+      const next = await fetchAllowlisted(embedded, { method: request.method, headers: pdfHeaders });
+      if (!next) return errorResponse(502, 'redirect_outside_allowlist');
+      fetched = next;
+      kind = classifyContentType(fetched.response.headers.get('content-type'));
+
+      // Lazy write-back: remember the real PDF so the next visitor skips the DOI/landing hop.
+      // Only the server writes here, only allowlisted URLs, only rows that have no PDF yet.
+      // Guards: same-site request only (no cross-site <img>/<link> triggering writes), the PDF
+      // must live on the same host as the landing page that linked it, and it must be the
+      // final URL actually served (no redirect elsewhere).
+      const fetchSite = request.headers.get('sec-fetch-site');
+      const sameSite = !fetchSite || fetchSite === 'same-origin' || fetchSite === 'none';
+      if (
+        env.DB &&
+        sameSite &&
+        kind === 'pdf' &&
+        fetched.response.ok &&
+        embedded.hostname === landingHost &&
+        fetched.finalUrl.toString() === embedded.toString()
+      ) {
+        const resolvedPdf = embedded.toString();
+        const doi = targetUrl.hostname === 'doi.org' ? decodeURIComponent(targetUrl.pathname.slice(1)) : '';
+        context.waitUntil(
+          env.DB.prepare(
+            `UPDATE publications SET pdf_url = ?, updated_at = datetime('now')
+             WHERE (pdf_url IS NULL OR pdf_url = '') AND (scielo_url = ? OR (? != '' AND doi = ?))`
+          )
+            .bind(resolvedPdf, targetUrl.toString(), doi, doi)
+            .run()
+            .catch(() => undefined)
+        );
       }
     }
 
-    // Guard against anti-bot / Cloudflare HTML interstitial pages masquerading as PDFs
-    if (contentType.includes('text/html') && !targetUrl.pathname.endsWith('.html')) {
-      return jsonResponse(
-        {
-          error: 'upstream_html_interstitial',
-          message: 'El servidor de origen devolvió HTML en lugar de PDF binario.',
-          originalUrl: targetUrl.toString()
-        },
-        502
-      );
+    const upstream = fetched.response;
+    if (!upstream.ok && upstream.status !== 206) {
+      await upstream.body?.cancel().catch(() => undefined);
+      if (upstream.status === 416) return errorResponse(416, 'range_not_satisfiable');
+      return errorResponse(upstream.status === 404 ? 404 : 502, 'upstream_unavailable', 'El servidor de origen no respondió con el documento.');
     }
 
-    const responseHeaders = buildProxyHeaders(upstreamRes.headers, {
-      'X-Edge-Cache': upstreamRes.status === 206 ? 'BYPASS-RANGE' : 'MISS'
+    if (kind !== 'pdf' && kind !== 'image') {
+      await upstream.body?.cancel().catch(() => undefined);
+      return errorResponse(502, 'unsupported_upstream_content', 'El origen devolvió un formato no permitido.');
+    }
+
+    const contentLength = Number.parseInt(upstream.headers.get('content-length') || '0', 10);
+    if (contentLength > MAX_PROXY_BYTES) {
+      await upstream.body?.cancel().catch(() => undefined);
+      return errorResponse(413, 'document_too_large');
+    }
+
+    const contentType = kind === 'pdf' ? 'application/pdf' : (upstream.headers.get('content-type') || 'image/jpeg').split(';')[0];
+    const responseHeaders = buildHeaders(upstream.headers, contentType, {
+      'X-Edge-Cache': upstream.status === 206 ? 'BYPASS-RANGE' : 'MISS'
     });
 
-    // Cloudflare Cache API only accepts status 200 responses (never 206 or HEAD)
-    const contentLength = Number.parseInt(upstreamRes.headers.get('content-length') || '0', 10);
-    if (
-      request.method === 'GET' &&
-      upstreamRes.status === 200 &&
-      (!contentLength || contentLength <= MAX_CACHEABLE_BYTES)
-    ) {
-      const [clientStream, cacheStream] = upstreamRes.body
-        ? upstreamRes.body.tee()
-        : [null, null];
+    if (request.method === 'HEAD') {
+      await upstream.body?.cancel().catch(() => undefined);
+      return new Response(null, { status: upstream.status, headers: responseHeaders });
+    }
 
-      if (cacheStream) {
-        const cacheHeaders = buildProxyHeaders(upstreamRes.headers, {
-          'Cache-Control': 'public, max-age=86400, s-maxage=86400'
-        });
-        const responseToCache = new Response(cacheStream, { status: 200, headers: cacheHeaders });
-        context.waitUntil(cache.put(cacheKey, responseToCache).catch(() => undefined));
-      }
+    if (!upstream.body) return new Response(null, { status: upstream.status, headers: responseHeaders });
 
+    // SciELO Books' CDN streams PDFs chunked (no Content-Length, Range ignored): enforce the
+    // byte cap while streaming instead of trusting the declared length.
+    const clientBody = upstream.body.pipeThrough(byteLimiter(MAX_PROXY_BYTES));
+
+    if (upstream.status === 200 && (contentLength === 0 || contentLength <= MAX_CACHEABLE_BYTES)) {
+      const [clientStream, cacheStream] = clientBody.tee();
+      // If the document turns out larger than the cache cap, the limited stream errors and
+      // cache.put() rejects — nothing partial is ever cached.
+      const toCache = new Response(cacheStream.pipeThrough(byteLimiter(MAX_CACHEABLE_BYTES)), {
+        status: 200,
+        headers: buildHeaders(upstream.headers, contentType)
+      });
+      context.waitUntil(cache.put(cacheKey, toCache).catch(() => undefined));
       return new Response(clientStream, { status: 200, headers: responseHeaders });
     }
 
-    return new Response(request.method === 'HEAD' ? null : upstreamRes.body, {
-      status: upstreamRes.status,
-      headers: responseHeaders
-    });
+    return new Response(clientBody, { status: upstream.status, headers: responseHeaders });
   } catch (err) {
-    return jsonResponse(
-      {
-        error: 'proxy_fetch_failed',
-        message: err instanceof Error ? err.message : 'Unexpected proxy error',
-        originalUrl: targetUrl.toString()
-      },
-      502
-    );
+    const timeout = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
+    console.error('[pdf-proxy]', targetUrl.hostname, err instanceof Error ? err.message : err);
+    return errorResponse(timeout ? 504 : 502, timeout ? 'upstream_timeout' : 'proxy_fetch_failed', 'No se pudo obtener el documento.');
   }
 };

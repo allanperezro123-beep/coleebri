@@ -1,4 +1,16 @@
-import { CORS_HEADERS, jsonResponse, rowToPublication, type Env, type PublicationRow } from '../types';
+import { rowToPublication, type Env, type PublicationRow } from '../types';
+import { INSERT_NEW_PUBLICATION_SQL, bindPublication, sanitizePublication } from '../publications';
+import {
+  MAX_QUERY_LENGTH,
+  SEARCH_WORD_CLAUSE,
+  clampInt,
+  cleanText,
+  fetchWithTimeout,
+  json,
+  politeUserAgent,
+  searchWordParams,
+  searchWords
+} from '../security';
 import { classifyOecdArea, inferCountry } from '../../src/lib/taxonomy';
 import type { DocumentType, LanguageCode, Publication } from '../../src/types/publication';
 
@@ -175,153 +187,176 @@ function mapOpenAlexWork(work: OpenAlexWork): Publication {
   };
 }
 
-export const onRequestOptions: PagesFunction<Env> = async () => {
-  return new Response(null, { status: 204, headers: CORS_HEADERS });
+type CrossrefItem = {
+  DOI?: string;
+  title?: string[];
+  author?: Array<{ given?: string; family?: string }>;
+  publisher?: string;
+  published?: { 'date-parts'?: number[][] };
+  type?: string;
+  URL?: string;
+  ISBN?: string[];
+  language?: string;
 };
 
-export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
+const SEARCH_TYPES = new Set(['all', 'book', 'chapter', 'article']);
+const SEARCH_LANGS = new Set(['es', 'pt', 'en']);
+
+async function fetchOpenAlex(url: string, userAgent: string): Promise<OpenAlexWork[]> {
+  try {
+    const res = await fetchWithTimeout(url, { headers: { 'User-Agent': userAgent, Accept: 'application/json' } }, 8_000);
+    if (!res.ok) return [];
+    const data = (await res.json()) as { results?: OpenAlexWork[] };
+    return Array.isArray(data.results) ? data.results : [];
+  } catch {
+    return [];
+  }
+}
+
+export const onRequestGet: PagesFunction<Env> = async (context) => {
+  const { request, env } = context;
   const url = new URL(request.url);
-  const q = (url.searchParams.get('q') || '').trim();
-  const type = url.searchParams.get('type') || 'all';
-  const lang = url.searchParams.get('lang') || '';
-  const page = Math.max(1, Number.parseInt(url.searchParams.get('page') || '1', 10));
-  const perPage = Math.min(25, Math.max(5, Number.parseInt(url.searchParams.get('perPage') || '12', 10)));
+  const q = cleanText(url.searchParams.get('q'), MAX_QUERY_LENGTH);
+  const typeParam = url.searchParams.get('type') || 'all';
+  const type = SEARCH_TYPES.has(typeParam) ? typeParam : 'all';
+  const langParam = url.searchParams.get('lang') || '';
+  const lang = SEARCH_LANGS.has(langParam) ? langParam : '';
+  const page = clampInt(url.searchParams.get('page'), 1, 1, 20);
+  const perPage = clampInt(url.searchParams.get('perPage'), 12, 5, 25);
+
+  if (q.length < 2) {
+    return json({ query: q, page, count: 0, items: [] });
+  }
 
   const results: Publication[] = [];
   const seenKeys = new Set<string>();
+  const remember = (pub: Publication) => {
+    const key = (pub.doi || pub.title).toLowerCase();
+    if (seenKeys.has(key)) return false;
+    seenKeys.add(key);
+    results.push(pub);
+    return true;
+  };
 
-  // 1. Query D1 first if available
-  if (env.DB && q) {
+  // 1. Local D1 catalogue first (literal match, wildcards escaped, bounded pattern length)
+  if (env.DB) {
     try {
-      const like = `%${q}%`;
-      const d1Rows = await env.DB.prepare(
-        `SELECT * FROM publications
-         WHERE (title LIKE ? OR authors_json LIKE ? OR abstract LIKE ? OR doi LIKE ? OR keywords_json LIKE ?)
-         ORDER BY cited_by_count DESC, publication_year DESC LIMIT 20`
-      )
-        .bind(like, like, like, like, like)
-        .all<PublicationRow>();
-
-      for (const row of d1Rows.results || []) {
-        const pub = rowToPublication(row);
-        const key = (pub.doi || pub.title).toLowerCase();
-        if (!seenKeys.has(key)) {
-          seenKeys.add(key);
-          results.push(pub);
-        }
+      const words = searchWords(q);
+      if (words.length > 0) {
+        const d1Rows = await env.DB.prepare(
+          `SELECT * FROM publications WHERE ${words.map(() => SEARCH_WORD_CLAUSE).join(' AND ')}
+           ORDER BY (pdf_url IS NOT NULL AND pdf_url != '') DESC, cited_by_count DESC, publication_year DESC LIMIT 20`
+        )
+          .bind(...words.flatMap(searchWordParams))
+          .all<PublicationRow>();
+        for (const row of d1Rows.results || []) remember(rowToPublication(row));
       }
-    } catch {
-      // Non-fatal: continue with OpenAlex live search
+    } catch (err) {
+      console.error('[search] d1 lookup failed', err instanceof Error ? err.message : err);
     }
   }
 
-  // 2. Real-time federated OpenAlex query filtered strictly to SciELO Books (10.7476) & SciELO Journals
-  const oaHeaders = {
-    'User-Agent': 'SciELO-Open-Library/1.0 (mailto:research@scielo-open-library.pages.dev)'
-  };
-
-  const langFilter = lang && ['es', 'pt', 'en'].includes(lang) ? `,language:${lang}` : '';
-  const searchParam = q ? `&search=${encodeURIComponent(q)}` : '&sort=cited_by_count:desc';
-
+  // 2. Federated OpenAlex query restricted to SciELO Books (10.7476) & SciELO journals
+  const userAgent = politeUserAgent(env.CONTACT_EMAIL);
+  const langFilter = lang ? `,language:${lang}` : '';
+  const searchParam = `&search=${encodeURIComponent(q)}`;
   const queries: Promise<OpenAlexWork[]>[] = [];
 
   if (type === 'all' || type === 'book' || type === 'chapter') {
     const typeFilter = type === 'book' ? ',type:book' : type === 'chapter' ? ',type:book-chapter' : '';
-    const booksUrl = `https://api.openalex.org/works?filter=doi_starts_with:10.7476,has_pdf_url:true${typeFilter}${langFilter}${searchParam}&per-page=${perPage}&page=${page}`;
     queries.push(
-      fetch(booksUrl, { headers: oaHeaders })
-        .then((r) => (r.ok ? (r.json() as Promise<{ results?: OpenAlexWork[] }>) : { results: [] }))
-        .then((d) => d.results || [])
-        .catch(() => [])
+      fetchOpenAlex(
+        `https://api.openalex.org/works?filter=doi_starts_with:10.7476,has_pdf_url:true${typeFilter}${langFilter}${searchParam}&per-page=${perPage}&page=${page}`,
+        userAgent
+      )
     );
   }
-
   if (type === 'all' || type === 'article') {
-    const articlesUrl = `https://api.openalex.org/works?filter=primary_location.source.listed_in:scielo,has_pdf_url:true${langFilter}${searchParam}&per-page=${Math.ceil(perPage / (type === 'all' ? 2 : 1))}&page=${page}`;
     queries.push(
-      fetch(articlesUrl, { headers: oaHeaders })
-        .then((r) => (r.ok ? (r.json() as Promise<{ results?: OpenAlexWork[] }>) : { results: [] }))
-        .then((d) => d.results || [])
-        .catch(() => [])
+      fetchOpenAlex(
+        `https://api.openalex.org/works?filter=primary_location.source.listed_in:scielo,has_pdf_url:true${langFilter}${searchParam}&per-page=${Math.ceil(perPage / (type === 'all' ? 2 : 1))}&page=${page}`,
+        userAgent
+      )
     );
   }
 
-  const settled = await Promise.all(queries);
-  for (const batch of settled) {
+  const fresh: Publication[] = [];
+  for (const batch of await Promise.all(queries)) {
     for (const work of batch) {
-      const mapped = mapOpenAlexWork(work);
-      const dedupeKey = (mapped.doi || mapped.title).toLowerCase();
-      if (!seenKeys.has(dedupeKey)) {
-        seenKeys.add(dedupeKey);
-        results.push(mapped);
+      try {
+        const mapped = sanitizePublication(mapOpenAlexWork(work));
+        if (mapped && remember(mapped)) fresh.push(mapped);
+      } catch {
+        // skip malformed upstream record
       }
     }
   }
 
-  // Fallback to Crossref SciELO Books (10.7476) if OpenAlex shared egress hits 429
-  if (results.length < 3 && q) {
+  // 3. Crossref (10.7476) fallback when OpenAlex is rate limited or returns little
+  if (results.length < 3) {
     try {
-      const crUrl = `https://api.crossref.org/prefixes/10.7476/works?query=${encodeURIComponent(q)}&rows=10&mailto=research@scielo-open-library.pages.dev`;
-      const crRes = await fetch(crUrl, { headers: oaHeaders });
+      const crRes = await fetchWithTimeout(
+        `https://api.crossref.org/prefixes/10.7476/works?query=${encodeURIComponent(q)}&rows=10`,
+        { headers: { 'User-Agent': userAgent, Accept: 'application/json' } },
+        8_000
+      );
       if (crRes.ok) {
-        const crData = (await crRes.json()) as {
-          message?: {
-            items?: Array<{
-              DOI?: string;
-              title?: string[];
-              author?: Array<{ given?: string; family?: string }>;
-              publisher?: string;
-              published?: { 'date-parts'?: number[][] };
-              type?: string;
-              URL?: string;
-            }>;
-          };
-        };
+        const crData = (await crRes.json()) as { message?: { items?: CrossrefItem[] } };
         for (const item of crData.message?.items || []) {
           const title = item.title?.[0];
           if (!title || !item.DOI) continue;
-          const key = item.DOI.toLowerCase();
-          if (seenKeys.has(key)) continue;
-          seenKeys.add(key);
-
           const publisher = item.publisher || 'SciELO Books';
           const { area, label, subarea } = classifyOecdArea({ title, publisher });
-          results.push({
+          const isbn = item.ISBN?.[0];
+          const candidate = sanitizePublication({
             id: `cr-${item.DOI.replace(/[^a-zA-Z0-9]/g, '')}`,
             oaiIdentifier: item.DOI,
             title,
             authors: (item.author || []).map((a) => [a.family, a.given].filter(Boolean).join(', ')).filter(Boolean),
             publisher,
+            isbn,
+            country: inferCountry({ publisher, isbn }),
             collection: 'SciELO Books',
             collectionCode: 'books',
             year: item.published?.['date-parts']?.[0]?.[0] ?? null,
-            language: 'pt',
+            language: (item.language as LanguageCode) || 'other',
             docType: item.type === 'book-chapter' ? 'chapter' : 'book',
             oecdArea: area,
             oecdAreaLabel: label,
             oecdSubarea: subarea,
-            abstract: `Obra registrada en SciELO Books (${publisher}, DOI: ${item.DOI}).`,
+            abstract: `Obra registrada en SciELO Books (${publisher}).`,
             keywords: [],
             doi: item.DOI,
-            scieloUrl: item.URL || `https://doi.org/${item.DOI}`,
+            scieloUrl: `https://doi.org/${item.DOI}`,
             citedByCount: 0,
             sourceOrigin: 'openalex'
           });
+          if (candidate && remember(candidate)) fresh.push(candidate);
         }
       }
     } catch {
-      // Ignore secondary fallback failure
+      // ignore secondary fallback failure
     }
   }
 
-  return jsonResponse({
-    query: q,
-    page,
-    count: results.length,
-    items: results,
-    sources: {
-      d1: Boolean(env.DB),
-      openAlex: true
-    }
-  });
+  // 4. Lazy server-side cache: only records the SERVER fetched (never client-supplied data),
+  //    only works with readable full text, INSERT-ONLY (never overwrites existing rows), and
+  //    skipped for cross-site requests (e.g. <img src="/api/search?q=..."> on another site).
+  const fetchSite = request.headers.get('sec-fetch-site');
+  const sameSite = !fetchSite || fetchSite === 'same-origin' || fetchSite === 'none';
+  const persistable = fresh.filter((p) => p.pdfUrl).slice(0, 10);
+  if (env.DB && sameSite && persistable.length > 0) {
+    const stmt = env.DB.prepare(INSERT_NEW_PUBLICATION_SQL);
+    context.waitUntil(
+      env.DB.batch(persistable.map((p) => bindPublication(stmt, p))).catch((err) => {
+        console.error('[search] persist failed', err instanceof Error ? err.message : err);
+      })
+    );
+  }
+
+  return json(
+    { query: q, page, count: results.length, items: results, sources: { d1: Boolean(env.DB), openAlex: true } },
+    200,
+    { 'Cache-Control': 'public, max-age=120' }
+  );
 };
