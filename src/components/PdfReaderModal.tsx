@@ -21,8 +21,11 @@ import {
   Download,
   Ellipsis,
   ExternalLink,
+  FileText,
   Loader2,
+  Maximize,
   Maximize2,
+  Minimize,
   Moon,
   PanelLeft,
   RefreshCw,
@@ -33,8 +36,9 @@ import {
   ZoomIn,
   ZoomOut
 } from 'lucide-react';
-import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask } from 'pdfjs-dist';
+import type { PDFDocumentLoadingTask, PDFDocumentProxy, PDFPageProxy, RenderTask } from 'pdfjs-dist';
 import '../styles/reader.css';
+import { ReaderLoadingView } from './ReaderLoadingView';
 import { loadPdfjs, openPdfDocument, type PdfjsModule } from '../lib/pdfLoader';
 import {
   buildPdfProxyUrl,
@@ -82,7 +86,7 @@ const FONT_MAX = 26;
 const FONT_STEP = 2;
 const FONT_DEFAULT = 18;
 
-type ReaderMode = 'canvas' | 'reflow';
+type ReaderMode = 'canvas' | 'fluid' | 'text';
 
 type LoadState =
   | { status: 'loading' }
@@ -125,7 +129,10 @@ function writeStorage(key: string, value: string): void {
 }
 
 function readStoredMode(): ReaderMode {
-  return readStorage(MODE_KEY) === 'reflow' ? 'reflow' : 'canvas';
+  const stored = readStorage(MODE_KEY);
+  if (stored === 'text') return 'text';
+  if (stored === 'fluid' || stored === 'reflow') return 'fluid';
+  return 'canvas';
 }
 
 function readStoredFont(): number {
@@ -259,6 +266,134 @@ function isTextEntry(el: Element | null): boolean {
   if (!el) return false;
   const tag = el.tagName;
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (el as HTMLElement).isContentEditable;
+}
+
+/* ------------------------------------------------------------------ */
+/* Shared PDF page bitmap & text-layer painting helpers                */
+/* ------------------------------------------------------------------ */
+
+interface CanvasBudget {
+  maxDpr: number;
+  maxPixels: number;
+}
+
+function getCanvasBudget(isCompact: boolean, isFluid: boolean): CanvasBudget {
+  if (isCompact) {
+    return {
+      maxDpr: isFluid ? 1.5 : 1.75,
+      maxPixels: isFluid ? 8_388_608 : 12_582_912
+    };
+  }
+  return {
+    maxDpr: 2,
+    maxPixels: isFluid ? 12_582_912 : MAX_CANVAS_PIXELS
+  };
+}
+
+function resolvePageScale(unscaledWidth: number, zoom: number | 'fit', availWidth: number): number {
+  if (zoom === 'fit') {
+    const safeWidth = Math.max(240, availWidth || unscaledWidth);
+    return clamp(safeWidth / unscaledWidth, MIN_ZOOM, FIT_MAX);
+  }
+  return clamp(zoom, MIN_ZOOM, MAX_ZOOM);
+}
+
+/**
+ * Renders one PDF page into a scratch off-screen canvas and blits onto `targetCanvas`,
+ * freeing the temporary bitmap immediately (critical for 3 GB iPhone X / XR memory limits).
+ */
+async function renderPdfBitmap(
+  page: PDFPageProxy,
+  scale: number,
+  budget: CanvasBudget,
+  targetCanvas: HTMLCanvasElement,
+  isStale: () => boolean,
+  onTask: (task: RenderTask | null) => void
+): Promise<{ viewport: ReturnType<PDFPageProxy['getViewport']> } | null> {
+  const viewport = page.getViewport({ scale });
+  let outScale = Math.min(window.devicePixelRatio || 1, budget.maxDpr);
+  const pixels = viewport.width * viewport.height * outScale * outScale;
+  if (pixels > budget.maxPixels) {
+    outScale = Math.max(0.5, Math.sqrt(budget.maxPixels / (viewport.width * viewport.height)));
+  }
+
+  const off = document.createElement('canvas');
+  off.width = Math.max(1, Math.floor(viewport.width * outScale));
+  off.height = Math.max(1, Math.floor(viewport.height * outScale));
+  const offCtx = off.getContext('2d');
+  if (!offCtx) throw new Error('Canvas 2D context unavailable');
+
+  const task = page.render({
+    canvasContext: offCtx,
+    canvas: off,
+    viewport,
+    transform: outScale === 1 ? undefined : [outScale, 0, 0, outScale, 0, 0],
+    background: PAGE_BACKGROUND
+  });
+  onTask(task);
+  try {
+    await task.promise;
+  } finally {
+    onTask(null);
+  }
+  if (isStale()) {
+    off.width = 0;
+    return null;
+  }
+
+  targetCanvas.width = off.width;
+  targetCanvas.height = off.height;
+  targetCanvas.style.width = `${Math.floor(viewport.width)}px`;
+  targetCanvas.style.height = `${Math.floor(viewport.height)}px`;
+  targetCanvas.getContext('2d')?.drawImage(off, 0, 0);
+  off.width = 0;
+  return { viewport };
+}
+
+async function mountPdfTextLayer(
+  page: PDFPageProxy,
+  viewport: ReturnType<PDFPageProxy['getViewport']>,
+  scale: number,
+  host: HTMLElement,
+  isStale: () => boolean,
+  onTask: (task: { cancel: () => void } | null) => void
+): Promise<boolean> {
+  const pdfjs: PdfjsModule = await loadPdfjs();
+  const textContent = await page.getTextContent();
+  if (isStale()) return false;
+
+  const layerEl = document.createElement('div');
+  layerEl.className = 'textLayer';
+  layerEl.style.setProperty('--scale-factor', String(scale));
+  layerEl.style.setProperty('--total-scale-factor', String(scale));
+  const textLayer = new pdfjs.TextLayer({
+    textContentSource: textContent,
+    container: layerEl,
+    viewport
+  });
+  onTask(textLayer);
+  try {
+    await textLayer.render();
+  } finally {
+    onTask(null);
+  }
+  if (isStale()) return false;
+
+  const endOfContent = document.createElement('div');
+  endOfContent.className = 'endOfContent';
+  layerEl.append(endOfContent);
+  layerEl.addEventListener('pointerdown', () => {
+    layerEl.classList.add('selecting');
+    const release = () => {
+      layerEl.classList.remove('selecting');
+      document.removeEventListener('pointerup', release);
+      document.removeEventListener('pointercancel', release);
+    };
+    document.addEventListener('pointerup', release);
+    document.addEventListener('pointercancel', release);
+  });
+  host.replaceChildren(layerEl);
+  return true;
 }
 
 /* ------------------------------------------------------------------ */
@@ -645,6 +780,379 @@ const ReflowView = memo(function ReflowView({
 });
 
 /* ------------------------------------------------------------------ */
+/* Lectura fluida (continuous PDF canvas stream)                       */
+/* ------------------------------------------------------------------ */
+
+interface PageSize {
+  width: number;
+  height: number;
+}
+
+interface FluidPageTileProps {
+  pdfDoc: PDFDocumentProxy;
+  pageNumber: number;
+  numPages: number;
+  baseSize: PageSize;
+  zoom: number | 'fit';
+  availWidth: number;
+  isCompact: boolean;
+  inWindow: boolean;
+  night: boolean;
+  activeTerm: string;
+  renderNonce: number;
+  queue: ConcurrencyQueue;
+  onSizeKnown: (page: number, size: PageSize) => void;
+}
+
+const FluidPageTile = memo(function FluidPageTile({
+  pdfDoc,
+  pageNumber,
+  numPages,
+  baseSize,
+  zoom,
+  availWidth,
+  isCompact,
+  inWindow,
+  night,
+  activeTerm,
+  renderNonce,
+  queue,
+  onSizeKnown
+}: FluidPageTileProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const hostRef = useRef<HTMLDivElement>(null);
+  const activeTermRef = useRef(activeTerm);
+  activeTermRef.current = activeTerm;
+
+  const [painted, setPainted] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [localRetry, setLocalRetry] = useState(0);
+
+  const scale = resolvePageScale(baseSize.width, zoom, availWidth);
+  const cssWidth = Math.max(120, Math.floor(baseSize.width * scale));
+  const cssHeight = Math.max(160, Math.floor(baseSize.height * scale));
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const host = hostRef.current;
+    if (!inWindow || (zoom === 'fit' && availWidth <= 0)) {
+      if (canvas) {
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+      host?.replaceChildren();
+      setPainted(false);
+      setFailed(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    let renderTask: RenderTask | null = null;
+    let textTask: { cancel: () => void } | null = null;
+    let stale = false;
+    const isStale = () => stale || controller.signal.aborted;
+
+    setFailed(false);
+
+    void queue
+      .enqueue(async () => {
+        if (isStale()) return;
+        const page = await pdfDoc.getPage(pageNumber);
+        if (isStale()) return;
+
+        const unscaled = page.getViewport({ scale: 1 });
+        if (Math.abs(unscaled.width - baseSize.width) > 1.5 || Math.abs(unscaled.height - baseSize.height) > 1.5) {
+          onSizeKnown(pageNumber, { width: unscaled.width, height: unscaled.height });
+        }
+
+        const effectiveScale = resolvePageScale(unscaled.width, zoom, availWidth);
+        const curCanvas = canvasRef.current;
+        const curHost = hostRef.current;
+        if (!curCanvas || !curHost) return;
+
+        const paintedResult = await renderPdfBitmap(
+          page,
+          effectiveScale,
+          getCanvasBudget(isCompact, true),
+          curCanvas,
+          isStale,
+          (t) => {
+            renderTask = t;
+          }
+        );
+        if (!paintedResult || isStale()) return;
+        curHost.replaceChildren();
+        setPainted(true);
+
+        const textOk = await mountPdfTextLayer(
+          page,
+          paintedResult.viewport,
+          effectiveScale,
+          curHost,
+          isStale,
+          (t) => {
+            textTask = t;
+          }
+        );
+        if (textOk && !isStale() && activeTermRef.current) {
+          applyHighlights(curHost, activeTermRef.current);
+        }
+      }, controller.signal)
+      .catch((err: unknown) => {
+        const name = (err as { name?: string } | null)?.name;
+        if (name !== 'RenderingCancelledException' && name !== 'AbortException' && !isStale()) {
+          setFailed(true);
+        }
+      });
+
+    return () => {
+      stale = true;
+      controller.abort();
+      renderTask?.cancel();
+      textTask?.cancel();
+    };
+  }, [
+    inWindow,
+    pdfDoc,
+    pageNumber,
+    zoom,
+    availWidth,
+    isCompact,
+    renderNonce,
+    localRetry,
+    queue,
+    baseSize.width,
+    baseSize.height,
+    onSizeKnown
+  ]);
+
+  // Keep search highlights synced without repainting canvases when search term changes.
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || !inWindow) return;
+    clearHighlights(host);
+    if (activeTerm) applyHighlights(host, activeTerm);
+  }, [activeTerm, inWindow, painted]);
+
+  return (
+    <article
+      className="rd-fluid-page"
+      data-fluid-page={pageNumber}
+      aria-label={`Página ${pageNumber} de ${numPages}`}
+    >
+      <div
+        className="rd-fluid-sheet"
+        data-night={night}
+        style={{ width: `${cssWidth}px`, height: `${cssHeight}px` }}
+      >
+        <canvas
+          ref={canvasRef}
+          className={painted ? 'rd-canvas rd-canvas--painted' : 'rd-canvas'}
+          data-night={night}
+          aria-hidden="true"
+        />
+        <div ref={hostRef} className="rd-textlayer-host" />
+        {inWindow && !painted && !failed && (
+          <div className="rd-fluid-placeholder" aria-hidden="true">
+            <Loader2 className="rd-spin rd-state-icon--busy" size={20} />
+            <span>Pág. {pageNumber}</span>
+          </div>
+        )}
+        {failed && (
+          <div className="rd-stage-overlay" style={{ pointerEvents: 'auto' }}>
+            <div className="rd-state" role="alert">
+              <p className="rd-state-text">No se pudo dibujar la página {pageNumber}.</p>
+              <div className="rd-state-actions">
+                <button type="button" className="rd-btn rd-btn--primary" onClick={() => setLocalRetry((n) => n + 1)}>
+                  <RefreshCw size={16} />
+                  Reintentar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+      <span className="rd-fluid-badge" aria-hidden="true">
+        {pageNumber} / {numPages}
+      </span>
+    </article>
+  );
+});
+
+interface FluidPdfViewProps {
+  pdfDoc: PDFDocumentProxy;
+  numPages: number;
+  defaultPageSize: PageSize;
+  jumpTo: { page: number; nonce: number };
+  scrollRef: RefObject<HTMLDivElement | null>;
+  zoom: number | 'fit';
+  availWidth: number;
+  isCompact: boolean;
+  night: boolean;
+  activeTerm: string;
+  renderNonce: number;
+  onScaleChange: (scale: number) => void;
+  onVisiblePage: (page: number) => void;
+}
+
+const FluidPdfView = memo(function FluidPdfView({
+  pdfDoc,
+  numPages,
+  defaultPageSize,
+  jumpTo,
+  scrollRef,
+  zoom,
+  availWidth,
+  isCompact,
+  night,
+  activeTerm,
+  renderNonce,
+  onScaleChange,
+  onVisiblePage
+}: FluidPdfViewProps) {
+  const [sizeOverrides, setSizeOverrides] = useState<Record<number, PageSize>>({});
+  const [windowPages, setWindowPages] = useState<Set<number>>(() => {
+    const initial = new Set<number>();
+    const start = clamp(jumpTo.page, 1, Math.max(1, numPages));
+    for (let p = Math.max(1, start - 1); p <= Math.min(numPages, start + 2); p++) {
+      initial.add(p);
+    }
+    return initial;
+  });
+
+  const queue = useMemo(() => new ConcurrencyQueue(isCompact ? 2 : 3), [isCompact]);
+  const handledNonceRef = useRef(-1);
+  const suppressSyncUntilRef = useRef(0);
+
+  const handleSizeKnown = useCallback((page: number, size: PageSize) => {
+    setSizeOverrides((prev) => {
+      const existing = prev[page];
+      if (existing && Math.abs(existing.width - size.width) < 1 && Math.abs(existing.height - size.height) < 1) {
+        return prev;
+      }
+      return { ...prev, [page]: size };
+    });
+  }, []);
+
+  // Keep toolbar zoom indicator synchronized in fluid mode too.
+  useEffect(() => {
+    if (zoom === 'fit' && availWidth <= 0) return;
+    onScaleChange(resolvePageScale(defaultPageSize.width, zoom, availWidth));
+  }, [zoom, availWidth, defaultPageSize.width, onScaleChange]);
+
+  // Programmatic scroll on mount (if entering at page > 1) and explicit jumps (buttons/rail/search).
+  useLayoutEffect(() => {
+    if (handledNonceRef.current === jumpTo.nonce) return;
+    handledNonceRef.current = jumpTo.nonce;
+    const root = scrollRef.current;
+    if (!root) return;
+    const target = root.querySelector<HTMLElement>(`[data-fluid-page="${jumpTo.page}"]`);
+    if (!target) return;
+
+    suppressSyncUntilRef.current = performance.now() + 300;
+    setWindowPages((prev) => {
+      const next = new Set(prev);
+      for (let p = Math.max(1, jumpTo.page - 1); p <= Math.min(numPages, jumpTo.page + 2); p++) {
+        next.add(p);
+      }
+      return next;
+    });
+    const top = Math.max(0, target.offsetTop - 8);
+    root.scrollTo({ top, behavior: 'auto' });
+  }, [jumpTo, numPages, scrollRef]);
+
+  // 1) Render / evict canvas bitmaps dynamically around the visible scrollport.
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (!root) return;
+    const nearMargin = isCompact ? '480px 0px' : '820px 0px';
+    const currentSet = new Set<number>();
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        let changed = false;
+        for (const entry of entries) {
+          const p = Number((entry.target as HTMLElement).dataset.fluidPage);
+          if (!Number.isFinite(p)) continue;
+          if (entry.isIntersecting) {
+            if (!currentSet.has(p)) {
+              currentSet.add(p);
+              changed = true;
+            }
+          } else if (currentSet.delete(p)) {
+            changed = true;
+          }
+        }
+        if (changed) setWindowPages(new Set(currentSet));
+      },
+      { root, rootMargin: nearMargin, threshold: 0 }
+    );
+
+    root.querySelectorAll('[data-fluid-page]').forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [numPages, isCompact, scrollRef]);
+
+  // 2) Track which page fills the primary reading viewport without flicker.
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (!root) return;
+    const visibleRatios = new Map<number, number>();
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const p = Number((entry.target as HTMLElement).dataset.fluidPage);
+          if (!Number.isFinite(p)) continue;
+          if (entry.isIntersecting && entry.intersectionRect.height > 0) {
+            visibleRatios.set(p, entry.intersectionRect.height);
+          } else {
+            visibleRatios.delete(p);
+          }
+        }
+        if (performance.now() < suppressSyncUntilRef.current || visibleRatios.size === 0) return;
+
+        let bestPage = -1;
+        let bestHeight = -1;
+        for (const [p, h] of visibleRatios) {
+          if (h > bestHeight + 4 || (Math.abs(h - bestHeight) <= 4 && p < bestPage)) {
+            bestHeight = h;
+            bestPage = p;
+          }
+        }
+        if (bestPage > 0) onVisiblePage(bestPage);
+      },
+      { root, threshold: [0, 0.15, 0.35, 0.55, 0.75, 0.95] }
+    );
+
+    root.querySelectorAll('[data-fluid-page]').forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [numPages, scrollRef, onVisiblePage]);
+
+  return (
+    <div className="rd-fluid-stream">
+      {range(1, numPages).map((page) => (
+        <FluidPageTile
+          key={page}
+          pdfDoc={pdfDoc}
+          pageNumber={page}
+          numPages={numPages}
+          baseSize={sizeOverrides[page] ?? defaultPageSize}
+          zoom={zoom}
+          availWidth={availWidth}
+          isCompact={isCompact}
+          inWindow={windowPages.has(page)}
+          night={night}
+          activeTerm={activeTerm}
+          renderNonce={renderNonce}
+          queue={queue}
+          onSizeKnown={handleSizeKnown}
+        />
+      ))}
+    </div>
+  );
+});
+
+/* ------------------------------------------------------------------ */
 /* Reader                                                              */
 /* ------------------------------------------------------------------ */
 
@@ -683,9 +1191,12 @@ export function PdfReaderModal({
   const [zoom, setZoom] = useState<number | 'fit'>('fit');
   const [displayScale, setDisplayScale] = useState(1);
   const [availWidth, setAvailWidth] = useState(0);
+  const [defaultPageSize, setDefaultPageSize] = useState<PageSize>({ width: 595, height: 842 });
   const [night, setNight] = useState(appIsDark);
   const [reflowFont, setReflowFont] = useState(readStoredFont);
   const [reflowJump, setReflowJump] = useState({ page: startPage, nonce: 0 });
+  const [fullscreen, setFullscreen] = useState(false);
+  const [fsHudVisible, setFsHudVisible] = useState(true);
 
   const [showThumbs, setShowThumbs] = useState(() => window.matchMedia(MQ_WIDE).matches);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -724,12 +1235,17 @@ export function PdfReaderModal({
   const renderSettledRef = useRef<Promise<void>>(Promise.resolve());
   const displayScaleRef = useRef(1);
   const swipeRef = useRef<{ x: number; y: number } | null>(null);
+  const fsTapRef = useRef<{ x: number; y: number } | null>(null);
+  const exitedNativeFsAtRef = useRef(0);
+  const prevNativeFsRef = useRef(false);
   const pendingSearchFocusRef = useRef(false);
   const closingRef = useRef(false);
   const lastPersistedRef = useRef(startPage);
 
   // Always-fresh values for stable callbacks and native listeners.
   const modeRef = useRef(mode);
+  const fullscreenRef = useRef(fullscreen);
+  const isCompactRef = useRef(isCompact);
   const currentPageRef = useRef(currentPage);
   const numPagesRef = useRef(numPages);
   const onCloseRef = useRef(onClose);
@@ -739,6 +1255,8 @@ export function PdfReaderModal({
 
   useEffect(() => {
     modeRef.current = mode;
+    fullscreenRef.current = fullscreen;
+    isCompactRef.current = isCompact;
     currentPageRef.current = currentPage;
     numPagesRef.current = numPages;
     onCloseRef.current = onClose;
@@ -762,13 +1280,15 @@ export function PdfReaderModal({
 
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+    document.documentElement.classList.add('has-open-dialog');
 
     if (!dialog.open) dialog.showModal();
     closeButtonRef.current?.focus();
 
     const onCancel = (e: Event) => {
-      // Esc: close our own top layer first (menu / sheet), otherwise the reader.
+      // Esc: exit native/CSS fullscreen or close top overlay first, otherwise the reader.
       e.preventDefault();
+      if (performance.now() - exitedNativeFsAtRef.current < 160) return;
       if (closeTopLayerRef.current()) return;
       onCloseRef.current();
     };
@@ -780,18 +1300,42 @@ export function PdfReaderModal({
       if (e.key === 'Escape') e.stopPropagation();
       keyHandlerRef.current(e);
     };
+    const onFullscreenChange = () => {
+      const docFs = document as Document & { webkitFullscreenElement?: Element | null };
+      const activeFs = Boolean(document.fullscreenElement || docFs.webkitFullscreenElement);
+      if (prevNativeFsRef.current && !activeFs) {
+        exitedNativeFsAtRef.current = performance.now();
+        setFullscreen(false);
+      }
+      prevNativeFsRef.current = activeFs;
+    };
 
     dialog.addEventListener('cancel', onCancel);
     dialog.addEventListener('close', onNativeClose);
     dialog.addEventListener('keydown', onKeyDown);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 
     return () => {
       closingRef.current = true;
       dialog.removeEventListener('cancel', onCancel);
       dialog.removeEventListener('close', onNativeClose);
       dialog.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', onFullscreenChange);
+      const docFs = document as Document & {
+        webkitFullscreenElement?: Element | null;
+        webkitExitFullscreen?: () => Promise<void> | void;
+      };
+      if (document.fullscreenElement === dialog || docFs.webkitFullscreenElement === dialog) {
+        void document.exitFullscreen?.().catch(() => undefined);
+        docFs.webkitExitFullscreen?.();
+      }
       if (dialog.open) dialog.close();
       document.body.style.overflow = previousOverflow;
+      if (!document.querySelector('dialog[open]')) {
+        document.documentElement.classList.remove('has-open-dialog');
+      }
       const opener = openerRef.current;
       if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
     };
@@ -830,6 +1374,11 @@ export function PdfReaderModal({
         if (cancelled) {
           void task.destroy().catch(() => undefined);
           return;
+        }
+        const firstPage = await doc.getPage(1);
+        const firstVp = firstPage.getViewport({ scale: 1 });
+        if (!cancelled) {
+          setDefaultPageSize({ width: firstVp.width || 595, height: firstVp.height || 842 });
         }
         const start = clamp(startPage, 1, doc.numPages);
         pdfDocRef.current = doc;
@@ -898,14 +1447,14 @@ export function PdfReaderModal({
     const target = clamp(Math.trunc(page), 1, total);
     setCurrentPage(target);
     setPageInput(String(target));
-    if (modeRef.current === 'reflow') {
+    if (modeRef.current === 'fluid' || modeRef.current === 'text') {
       setReflowJump((j) => ({ page: target, nonce: j.nonce + 1 }));
     } else {
       scrollRef.current?.scrollTo({ top: 0 });
     }
   }, []);
 
-  const handleVisibleReflowPage = useCallback((page: number) => {
+  const handleVisibleStreamPage = useCallback((page: number) => {
     setCurrentPage(page);
     setPageInput(String(page));
   }, []);
@@ -914,20 +1463,66 @@ export function PdfReaderModal({
     setMode(next);
     writeStorage(MODE_KEY, next);
     if (next === 'canvas') setPainted(false);
-    if (next === 'reflow') {
+    if (next === 'fluid' || next === 'text') {
       setReflowJump((j) => ({ page: currentPageRef.current, nonce: j.nonce + 1 }));
     }
     setMenuOpen(false);
   }, []);
 
-  const backToOriginal = useCallback(
+  const backToPdf = useCallback(
     (page: number) => {
       setCurrentPage(page);
       setPageInput(String(page));
-      switchMode('canvas');
+      switchMode('fluid');
     },
     [switchMode]
   );
+
+  const exitFullscreen = useCallback(async () => {
+    const docFs = document as Document & {
+      webkitFullscreenElement?: Element | null;
+      webkitExitFullscreen?: () => Promise<void> | void;
+    };
+    const dialog = dialogRef.current;
+    if (dialog && (document.fullscreenElement === dialog || docFs.webkitFullscreenElement === dialog)) {
+      try {
+        if (document.exitFullscreen) await document.exitFullscreen();
+        else docFs.webkitExitFullscreen?.();
+      } catch {
+        // Native exit ignored: CSS fullscreen still turns off below.
+      }
+    }
+    prevNativeFsRef.current = false;
+    setFullscreen(false);
+  }, []);
+
+  const toggleFullscreen = useCallback(async () => {
+    setMenuOpen(false);
+    if (fullscreenRef.current) {
+      await exitFullscreen();
+      return;
+    }
+    setShowThumbs(false);
+    setFsHudVisible(true);
+    setFullscreen(true);
+    const dialog = dialogRef.current as
+      | (HTMLDialogElement & { webkitRequestFullscreen?: () => Promise<void> | void })
+      | null;
+    if (!dialog) return;
+    try {
+      if (dialog.requestFullscreen) {
+        await dialog.requestFullscreen();
+        prevNativeFsRef.current = true;
+      } else if (dialog.webkitRequestFullscreen) {
+        await dialog.webkitRequestFullscreen();
+        prevNativeFsRef.current = true;
+      }
+    } catch {
+      // iPhone X/XR & iOS Safari reject or omit Element.requestFullscreen():
+      // CSS `.coleebri-reader--fullscreen` provides full edge-to-edge reading seamlessly.
+      prevNativeFsRef.current = false;
+    }
+  }, [exitFullscreen]);
 
   // Debounced announcement for the live region (scrolling must not spam screen readers).
   useEffect(() => {
@@ -950,14 +1545,14 @@ export function PdfReaderModal({
     measure();
     const observer = new ResizeObserver(() => {
       window.clearTimeout(timer);
-      timer = window.setTimeout(measure, 150);
+      timer = window.setTimeout(measure, 80);
     });
     observer.observe(el);
     return () => {
       window.clearTimeout(timer);
       observer.disconnect();
     };
-  }, []);
+  }, [fullscreen, showThumbs]);
 
   /* ---- canvas rendering (serialised: one render on the canvas at a time) */
 
@@ -987,89 +1582,39 @@ export function PdfReaderModal({
         if (isStale()) return;
 
         const unscaled = page.getViewport({ scale: 1 });
-        const scale =
-          zoom === 'fit'
-            ? clamp(availWidth / unscaled.width, MIN_ZOOM, FIT_MAX)
-            : clamp(zoom, MIN_ZOOM, MAX_ZOOM);
-        const viewport = page.getViewport({ scale });
+        const scale = resolvePageScale(unscaled.width, zoom, availWidth);
         setDisplayScale(scale);
-
-        // Draw on an off-screen canvas, then blit: the visible page is never blank mid-render
-        // and two render() calls can never share a canvas.
-        let outScale = Math.min(window.devicePixelRatio || 1, 2);
-        const pixels = viewport.width * viewport.height * outScale * outScale;
-        if (pixels > MAX_CANVAS_PIXELS) {
-          outScale = Math.max(0.5, Math.sqrt(MAX_CANVAS_PIXELS / (viewport.width * viewport.height)));
-        }
-        const off = document.createElement('canvas');
-        off.width = Math.max(1, Math.floor(viewport.width * outScale));
-        off.height = Math.max(1, Math.floor(viewport.height * outScale));
-        const offCtx = off.getContext('2d');
-        if (!offCtx) throw new Error('Canvas 2D context unavailable');
-
-        const task = page.render({
-          canvasContext: offCtx,
-          canvas: off,
-          viewport,
-          transform: outScale === 1 ? undefined : [outScale, 0, 0, outScale, 0, 0],
-          background: PAGE_BACKGROUND
-        });
-        renderTaskRef.current = task;
-        try {
-          await task.promise;
-        } finally {
-          if (renderTaskRef.current === task) renderTaskRef.current = null;
-        }
-        if (isStale()) {
-          off.width = 0;
-          return;
-        }
 
         const canvas = canvasRef.current;
         const host = textHostRef.current;
         if (!canvas || !host) return;
-        canvas.width = off.width;
-        canvas.height = off.height;
-        canvas.style.width = `${Math.floor(viewport.width)}px`;
-        canvas.style.height = `${Math.floor(viewport.height)}px`;
-        canvas.getContext('2d')?.drawImage(off, 0, 0);
-        off.width = 0; // release the bitmap right away (iOS memory)
+
+        const paintedResult = await renderPdfBitmap(
+          page,
+          scale,
+          getCanvasBudget(isCompact, false),
+          canvas,
+          isStale,
+          (t) => {
+            renderTaskRef.current = t;
+          }
+        );
+        if (!paintedResult || isStale()) return;
+
         host.replaceChildren(); // the old text layer no longer matches the new bitmap
         setPainted(true);
 
-        // Selectable / searchable text on top of the bitmap.
-        const pdfjs: PdfjsModule = await loadPdfjs();
-        const textContent = await page.getTextContent();
-        if (isStale()) return;
-
-        const layerEl = document.createElement('div');
-        layerEl.className = 'textLayer';
-        layerEl.style.setProperty('--scale-factor', String(scale));
-        layerEl.style.setProperty('--total-scale-factor', String(scale));
-        const textLayer = new pdfjs.TextLayer({
-          textContentSource: textContent,
-          container: layerEl,
-          viewport
-        });
-        textLayerTaskRef.current = textLayer;
-        await textLayer.render();
-        if (isStale()) return;
-
-        const endOfContent = document.createElement('div');
-        endOfContent.className = 'endOfContent';
-        layerEl.append(endOfContent);
-        layerEl.addEventListener('pointerdown', () => {
-          layerEl.classList.add('selecting');
-          const release = () => {
-            layerEl.classList.remove('selecting');
-            document.removeEventListener('pointerup', release);
-            document.removeEventListener('pointercancel', release);
-          };
-          document.addEventListener('pointerup', release);
-          document.addEventListener('pointercancel', release);
-        });
-        host.replaceChildren(layerEl);
-        setRenderVersion((v) => v + 1);
+        const textOk = await mountPdfTextLayer(
+          page,
+          paintedResult.viewport,
+          scale,
+          host,
+          isStale,
+          (t) => {
+            textLayerTaskRef.current = t;
+          }
+        );
+        if (textOk && !isStale()) setRenderVersion((v) => v + 1);
       } catch (err) {
         const name = (err as { name?: string } | null)?.name;
         if (name !== 'RenderingCancelledException' && name !== 'AbortException' && !isStale()) {
@@ -1086,7 +1631,7 @@ export function PdfReaderModal({
       renderTaskRef.current?.cancel();
       textLayerTaskRef.current?.cancel();
     };
-  }, [pdfDoc, mode, currentPage, zoom, availWidth, renderNonce]);
+  }, [pdfDoc, mode, currentPage, zoom, availWidth, isCompact, renderNonce]);
 
   useEffect(() => {
     if (!renderBusy) {
@@ -1244,6 +1789,10 @@ export function PdfReaderModal({
       setShowThumbs(false);
       return true;
     }
+    if (fullscreenRef.current) {
+      void exitFullscreen();
+      return true;
+    }
     return false;
   };
 
@@ -1327,6 +1876,11 @@ export function PdfReaderModal({
         }
         break;
       }
+      case 'f':
+      case 'F':
+        e.preventDefault();
+        void toggleFullscreen();
+        break;
       default:
         break;
     }
@@ -1380,12 +1934,14 @@ export function PdfReaderModal({
       ? Math.min(100, Math.round((loadProgress.loaded / loadProgress.total) * 100))
       : null;
 
-  const isReflow = mode === 'reflow';
+  const isFluid = mode === 'fluid';
+  const isText = mode === 'text';
   const totalHits = search.results.reduce((n, r) => n + r.count, 0);
   const zoomLabel = `${Math.round(displayScale * 100)}%`;
   const rootClass = [
     'coleebri-reader',
-    night ? 'dark' : appIsDark ? 'coleebri-reader--paper' : ''
+    night ? 'dark' : appIsDark ? 'coleebri-reader--paper' : '',
+    fullscreen ? 'coleebri-reader--fullscreen' : ''
   ]
     .filter(Boolean)
     .join(' ');
@@ -1536,14 +2092,42 @@ export function PdfReaderModal({
     <button
       type="button"
       className={isCompact ? 'rd-btn rd-btn--icon' : 'rd-btn'}
-      aria-pressed={isReflow}
+      aria-pressed={isFluid}
       aria-label="Lectura fluida"
-      title="Lectura fluida: texto adaptable al tamaño de tu pantalla"
+      title="Lectura fluida: desplazamiento continuo por las páginas del PDF"
       disabled={!ready}
-      onClick={() => switchMode(isReflow ? 'canvas' : 'reflow')}
+      onClick={() => switchMode(isFluid ? 'canvas' : 'fluid')}
     >
       <BookOpenText size={18} />
       {!isCompact && <span>Lectura fluida</span>}
+    </button>
+  );
+
+  const textModeButton = (
+    <button
+      type="button"
+      className={isCompact ? 'rd-btn' : 'rd-btn rd-btn--icon'}
+      aria-pressed={isText}
+      aria-label="Modo solo texto"
+      title="Solo texto adaptable (sin imágenes)"
+      disabled={!ready}
+      onClick={() => switchMode(isText ? 'fluid' : 'text')}
+    >
+      <FileText size={16} />
+      {isCompact && <span>Solo texto</span>}
+    </button>
+  );
+
+  const fullscreenButton = (
+    <button
+      type="button"
+      className="rd-btn rd-btn--icon"
+      aria-label={fullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
+      title={fullscreen ? 'Salir de pantalla completa (F)' : 'Pantalla completa (F)'}
+      aria-pressed={fullscreen}
+      onClick={() => void toggleFullscreen()}
+    >
+      {fullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
     </button>
   );
 
@@ -1601,15 +2185,17 @@ export function PdfReaderModal({
               {pageField}
               {nextButton}
             </div>
-            {isReflow ? fontControls : zoomControls}
+            {isText ? fontControls : zoomControls}
             {searchForm}
           </>
         )}
 
         <div className="rd-header-actions">
           {reflowButton}
+          {!isCompact && ready && textModeButton}
           {!isCompact && nightButton}
           {!isCompact && downloadLink}
+          {fullscreenButton}
           {isCompact && (
             <button
               ref={menuButtonRef}
@@ -1639,8 +2225,11 @@ export function PdfReaderModal({
         {isCompact && menuOpen && (
           <div ref={menuRef} id={menuId} className="rd-menu">
             {ready && searchForm}
-            {ready && !isReflow && <div className="rd-menu-row">{zoomControls}</div>}
-            <div className="rd-menu-row">{nightButton}</div>
+            {ready && !isText && <div className="rd-menu-row">{zoomControls}</div>}
+            <div className="rd-menu-row">
+              {nightButton}
+              {ready && textModeButton}
+            </div>
             {downloadLink && <div className="rd-menu-row">{downloadLink}</div>}
           </div>
         )}
@@ -1733,34 +2322,42 @@ export function PdfReaderModal({
         <div
           ref={scrollRef}
           className="rd-scroll"
-          data-mode={isReflow ? 'reflow' : 'canvas'}
+          data-mode={isText ? 'reflow' : isFluid ? 'fluid' : 'canvas'}
+          data-state={loadState.status}
           tabIndex={0}
           role="region"
           aria-label="Contenido del documento"
           style={{ '--rd-reflow-size': `${reflowFont}px` } as CSSProperties}
+          onPointerDown={(e) => {
+            if (fullscreen) fsTapRef.current = { x: e.clientX, y: e.clientY };
+          }}
+          onPointerUp={(e) => {
+            if (!fullscreen || !fsTapRef.current) return;
+            const dx = Math.abs(e.clientX - fsTapRef.current.x);
+            const dy = Math.abs(e.clientY - fsTapRef.current.y);
+            fsTapRef.current = null;
+            if (dx > 8 || dy > 8) return;
+            if ((e.target as Element | null)?.closest('button, a, input, select')) return;
+            if (window.getSelection()?.toString()) return;
+            setFsHudVisible((v) => !v);
+          }}
           onTouchStart={onTouchStart}
           onTouchMove={onTouchMove}
           onTouchEnd={onTouchEnd}
           onTouchCancel={() => {
             swipeRef.current = null;
+            fsTapRef.current = null;
           }}
         >
           {loadState.status === 'loading' && (
-            <div className="rd-state" role="status">
-              <Loader2 className="rd-spin rd-state-icon rd-state-icon--busy" size={28} aria-hidden="true" />
-              <p className="rd-state-title">Abriendo el documento…</p>
-              <p className="rd-state-text">
-                {progressPct !== null
-                  ? `${progressPct}% descargado`
-                  : loadProgress.loaded > 0
-                    ? `${Math.round(loadProgress.loaded / 1024)} KB descargados`
-                    : 'Esto puede tardar unos segundos en conexiones lentas.'}
-              </p>
-              {progressPct !== null && (
-                <div className="rd-progress" aria-hidden="true">
-                  <span style={{ width: `${progressPct}%` }} />
-                </div>
-              )}
+            <div className="rd-loader-stage">
+              <ReaderLoadingView
+                publication={publication}
+                stage="pdf"
+                progressPct={progressPct}
+                loadedBytes={loadProgress.loaded}
+                totalBytes={loadProgress.total}
+              />
             </div>
           )}
 
@@ -1796,7 +2393,7 @@ export function PdfReaderModal({
             </div>
           )}
 
-          {ready && pdfDoc && !isReflow && (
+          {ready && pdfDoc && !isFluid && !isText && (
             <div className="rd-stage">
               {showBusy && (
                 <div className="rd-busy" role="status">
@@ -1837,27 +2434,45 @@ export function PdfReaderModal({
             </div>
           )}
 
-          {ready && pdfDoc && isReflow && (
+          {ready && pdfDoc && isFluid && (
+            <FluidPdfView
+              pdfDoc={pdfDoc}
+              numPages={numPages}
+              defaultPageSize={defaultPageSize}
+              jumpTo={reflowJump}
+              scrollRef={scrollRef}
+              zoom={zoom}
+              availWidth={availWidth}
+              isCompact={isCompact}
+              night={night}
+              activeTerm={activeTerm}
+              renderNonce={renderNonce}
+              onScaleChange={setDisplayScale}
+              onVisiblePage={handleVisibleStreamPage}
+            />
+          )}
+
+          {ready && pdfDoc && isText && (
             <ReflowView
-                      pdfDoc={pdfDoc}
+              pdfDoc={pdfDoc}
               numPages={numPages}
               jumpTo={reflowJump}
               scrollRef={scrollRef}
               cache={reflowCacheRef.current}
               lang={lang}
-              onVisiblePage={handleVisibleReflowPage}
-              onSwitchToOriginal={backToOriginal}
+              onVisiblePage={handleVisibleStreamPage}
+              onSwitchToOriginal={backToPdf}
             />
           )}
         </div>
       </div>
 
       {/* Compact bottom bar (phones & tablets) */}
-      {isCompact && ready && (
+      {isCompact && ready && !fullscreen && (
         <nav className="rd-bottombar" aria-label="Navegación del documento">
           {prevButton}
           <div className="rd-bottombar-center">
-            {isReflow ? (
+            {isText ? (
               fontControls
             ) : (
               <button
@@ -1875,6 +2490,59 @@ export function PdfReaderModal({
           </div>
           {nextButton}
         </nav>
+      )}
+
+      {/* Fullscreen floating controls (all screens, incl. iPhone X/XR Safari fallback) */}
+      {fullscreen && ready && (
+        fsHudVisible ? (
+          <div className="rd-fs-hud" role="toolbar" aria-label="Controles de pantalla completa">
+            {prevButton}
+            <span className="rd-value" aria-live="off">
+              {currentPage} / {numPages}
+            </span>
+            {nextButton}
+            <button
+              type="button"
+              className="rd-btn rd-btn--icon"
+              aria-label="Lectura fluida"
+              title="Lectura fluida"
+              aria-pressed={isFluid}
+              onClick={() => switchMode(isFluid ? 'canvas' : 'fluid')}
+            >
+              <BookOpenText size={17} />
+            </button>
+            <button
+              type="button"
+              className="rd-btn rd-btn--icon"
+              aria-label={night ? 'Modo papel' : 'Modo nocturno'}
+              title={night ? 'Modo papel' : 'Modo nocturno'}
+              aria-pressed={night}
+              onClick={() => setNight((n) => !n)}
+            >
+              {night ? <Moon size={16} /> : <Sun size={16} />}
+            </button>
+            <button
+              type="button"
+              className="rd-btn"
+              aria-label="Salir de pantalla completa"
+              title="Salir de pantalla completa (Esc / F)"
+              onClick={() => void exitFullscreen()}
+            >
+              <Minimize size={16} />
+              {!isCompact && <span>Salir</span>}
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="rd-btn rd-btn--icon rd-fs-corner-exit"
+            aria-label="Salir de pantalla completa"
+            title="Salir de pantalla completa"
+            onClick={() => void exitFullscreen()}
+          >
+            <Minimize size={18} />
+          </button>
+        )
       )}
 
       <div className="rd-sr-only" role="status" aria-live="polite" aria-atomic="true">

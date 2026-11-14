@@ -80,7 +80,7 @@ export function ShelvesModal({
   };
 
   return (
-    <Modal labelledBy={titleId} onClose={onClose} className="h-[85dvh]">
+    <Modal labelledBy={titleId} onClose={onClose} className="shelves-dialog">
       <ModalHeader
         titleId={titleId}
         title="Mis estanterías"
@@ -103,7 +103,7 @@ export function ShelvesModal({
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <nav
           aria-label="Estanterías"
-          className="max-h-[34dvh] w-full shrink-0 overflow-y-auto overscroll-contain border-b p-3 md:max-h-none md:w-64 md:border-b-0 md:border-r md:p-4"
+          className="shelves-nav w-full shrink-0 overflow-y-auto overscroll-contain border-b p-3 md:w-64 md:border-b-0 md:border-r md:p-4"
           style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-hairline)' }}
         >
           <div className="mb-3 flex items-center justify-between">

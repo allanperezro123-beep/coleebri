@@ -8,6 +8,7 @@ import { FacetSidebar } from './components/FacetSidebar';
 import { Header } from './components/Header';
 import { OfflineBanner } from './components/OfflineBanner';
 import { QuickFilterBar } from './components/QuickFilterBar';
+import { ReaderLoadingView } from './components/ReaderLoadingView';
 import { RecentShelf } from './components/RecentShelf';
 import { useCatalog } from './hooks/useCatalog';
 import { useReadingProgress } from './hooks/useReadingProgress';
@@ -304,7 +305,7 @@ export function App() {
   const drawerItems = selectedPublication ? getPublicationShelves(selectedPublication.id) : [];
 
   return (
-    <div className="archive-texture flex min-h-dvh flex-col">
+    <div className="archive-texture app-shell flex flex-col">
       <a href="#catalogo" className="skip-link">
         Saltar al catálogo
       </a>
@@ -392,7 +393,7 @@ export function App() {
                   key={chip.key}
                   type="button"
                   onClick={chip.onRemove}
-                  className="chip"
+                  className="chip chip-enter"
                   aria-pressed="true"
                   aria-label={`Quitar filtro: ${chip.label}`}
                 >
@@ -442,15 +443,47 @@ export function App() {
 
       <footer
         className="border-t px-4 py-6 text-sm"
-        style={{ borderColor: 'var(--border-hairline)', color: 'var(--text-muted)', paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}
+        style={{
+          borderColor: 'var(--border-hairline)',
+          color: 'var(--text-muted)',
+          paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))'
+        }}
       >
-        <div className="mx-auto flex max-w-[1440px] flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mx-auto flex max-w-[1440px] flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <p className="max-w-3xl">
             Coleebri reúne libros y artículos científicos de acceso abierto de SciELO, DOAB, Redalyc, OpenAlex y repositorios universitarios. Su imagen se inspira en el colibrí de la Universidad Pedagógica Nacional de Colombia.
           </p>
-          <button type="button" className="btn btn-ghost btn-sm self-start" onClick={() => setSyncModalOpen(true)}>
-            Estado del catálogo
-          </button>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 sm:shrink-0 sm:justify-end">
+            <span className="text-xs">
+              Hecho por{' '}
+              <a
+                href="https://bluecode-landing.pages.dev/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="bluecode-link"
+              >
+                BlueCode
+              </a>
+            </span>
+            <a
+              href="https://www.instagram.com/bluecode2026/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="bluecode-ig-btn"
+              aria-label="Instagram de BlueCode (@bluecode2026)"
+              title="BlueCode en Instagram"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect width="20" height="20" x="2" y="2" rx="5" ry="5" />
+                <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
+                <line x1="17.5" x2="17.51" y1="6.5" y2="6.5" />
+              </svg>
+              <span>@bluecode2026</span>
+            </a>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSyncModalOpen(true)}>
+              Estado del catálogo
+            </button>
+          </div>
         </div>
       </footer>
 
@@ -489,7 +522,20 @@ export function App() {
             setToast({ text: 'No se pudo abrir el lector. Revisa tu conexión e inténtalo de nuevo.', tone: 'warn' });
           }}
         >
-          <Suspense fallback={<LoadingOverlay />}>
+          <Suspense
+            fallback={
+              <div
+                className="fixed inset-0 z-[60] grid place-items-center p-4"
+                style={{ backgroundColor: 'var(--scrim)' }}
+              >
+                <ReaderLoadingView
+                  publication={readerState.pub}
+                  stage="chunk"
+                  onCancel={handleCloseReader}
+                />
+              </div>
+            }
+          >
             <PdfReaderModal
               publication={readerState.pub}
               initialPage={readerState.initialPage}

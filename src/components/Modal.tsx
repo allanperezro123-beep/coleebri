@@ -30,9 +30,13 @@ export function Modal({ onClose, labelledBy, variant = 'center', size = 'lg', cl
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     unmountingRef.current = false;
     if (!dialog.open) dialog.showModal();
+    document.documentElement.classList.add('has-open-dialog');
     return () => {
       unmountingRef.current = true;
       if (dialog.open) dialog.close();
+      if (!document.querySelector('dialog[open]')) {
+        document.documentElement.classList.remove('has-open-dialog');
+      }
       if (previouslyFocused && previouslyFocused.isConnected) previouslyFocused.focus({ preventScroll: true });
     };
   }, []);
