@@ -14,7 +14,7 @@ export const MAX_FILTER_VALUE_LENGTH = 64;
 
 /** Hosts whose URLs may be stored in D1 / rendered as links or fetched by the PDF proxy. */
 export const TRUSTED_CONTENT_HOST =
-  /^(?:[a-z0-9-]+\.)*(?:scielo\.(?:org|br|cl|pt|edu\.uy|sa\.cr|sld\.cu|isciii\.es)|scielo\.org\.(?:ar|bo|co|ec|mx|pe|py|ve)|scielo\.iics\.una\.py|doabooks\.org|oapen\.org|doi\.org)$/i;
+  /^(?:(?:[a-z0-9-]+\.)*(?:scielo\.(?:org|br|cl|pt|edu\.uy|sa\.cr|sld\.cu|isciii\.es)|scielo\.org\.(?:ar|bo|co|ec|mx|pe|py|ve)|scielo\.iics\.una\.py|doabooks\.org|oapen\.org|doi\.org)|assets\.verlag\.gta\.arch\.ethz\.ch|ciencialatina\.org|downloads\.editoracientifica\.com\.br|e-archivo\.uc3m\.es|editorialmarcaribe\.es|edizionicafoscari\.unive\.it|eladd\.org|intech-files\.s3\.amazonaws\.com|melusina-pubs\.fra1\.digitaloceanspaces\.com|mts\.intechopen\.com|portalcris\.vdu\.lt|pure\.iiasa\.ac\.at|real\.mtak\.hu|repository\.unad\.edu\.co|researchonline\.lse\.ac\.uk|revistas\.upsa\.es|revistasonline\.inap\.es|sauyayinlari\.sakarya\.edu\.tr|skyfox\.co|sophiaeditions\.com|www\.berghahnbooks\.com|www\.cambridge\.org|www\.editoracientifica\.com\.br|www\.editoracrv\.com\.br|www\.ledizioni\.it|www\.logos-verlag\.de|www\.redalyc\.org|www\.sav\.sk|www\.seankingston\.co\.uk|www\.vdu\.lt|www\.viella\.it|www\.zaphon\.de)$/i;
 
 const IP_LITERAL = /^(?:\d{1,3}(?:\.\d{1,3}){3}|\[[0-9a-f:.]+\])$/i;
 
@@ -104,6 +104,25 @@ export function searchWords(q: string): string[] {
     .map((w) => truncateUtf8(w.replace(/[\\%_]/g, ''), 40))
     .filter((w) => w.length >= 2)
     .slice(0, 4);
+}
+
+/**
+ * Builds a safe FTS5 MATCH expression: every word becomes a quoted prefix token ("educa"*),
+ * implicitly AND-ed. Only letters/digits survive, so FTS5 operators (OR, NEAR, -, :, ^, ())
+ * typed by users can never change the query shape. Returns null when nothing is searchable.
+ */
+export function ftsMatchQuery(q: string): string | null {
+  const tokens = foldText(q)
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((t) => t.length >= 2)
+    .slice(0, 6)
+    .map((t) => `"${truncateUtf8(t, 40)}"*`);
+  return tokens.length > 0 ? tokens.join(' ') : null;
+}
+
+/** True when the error means the FTS index isn't installed yet (migration 0006 pending). */
+export function isMissingFtsError(err: unknown): boolean {
+  return err instanceof Error && /no such table: publications_fts|no such module: fts5/i.test(err.message);
 }
 
 /** Folded text blob stored in `publications.search_text` for accent-insensitive search. */
@@ -282,9 +301,29 @@ export function clientIp(request: Request): string {
   return request.headers.get('cf-connecting-ip') || request.headers.get('x-real-ip') || 'unknown';
 }
 
-/** fetch() with a hard timeout; never follows redirects implicitly unless asked. */
-export function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 15_000): Promise<Response> {
-  return fetch(input, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+/**
+ * fetch() with a timeout; never follows redirects implicitly unless asked.
+ * Set `headersOnly = true` for streaming downloads so large PDFs aren't killed mid-body.
+ */
+export async function fetchWithTimeout(
+  input: string,
+  init: RequestInit = {},
+  timeoutMs = 15_000,
+  headersOnly = false
+): Promise<Response> {
+  if (!headersOnly) {
+    return fetch(input, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(new DOMException('The operation was aborted due to timeout', 'TimeoutError')),
+    timeoutMs
+  );
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** User-Agent for outbound polite requests. Contact e-mail is optional and comes from env, never hardcoded. */

@@ -31,7 +31,7 @@ async function fetchAllowlisted(
 ): Promise<FetchedTarget | null> {
   let current = start;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
-    const response = await fetchWithTimeout(current.toString(), { ...init, redirect: 'manual' }, timeoutMs);
+    const response = await fetchWithTimeout(current.toString(), { ...init, redirect: 'manual' }, timeoutMs, true);
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get('location');
       await response.body?.cancel().catch(() => undefined);
