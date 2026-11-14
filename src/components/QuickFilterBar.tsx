@@ -1,6 +1,7 @@
 import { useId } from 'react';
 import { BookCheck, SlidersHorizontal } from 'lucide-react';
 import type { CatalogFilters, CatalogStats, LanguageCode } from '../types/publication';
+import { SourceFilterBar } from './SourceFilterBar';
 
 interface QuickFilterBarProps {
   stats: CatalogStats;
@@ -8,6 +9,8 @@ interface QuickFilterBarProps {
   /** Replaces the whole selection; an empty array means "Todos". */
   onSetLanguages: (languages: LanguageCode[]) => void;
   onSetCountries: (countries: string[]) => void;
+  /** Replaces the repository selection; an empty array means "Todas". */
+  onSetCollections: (collections: string[]) => void;
   onYearChange: (from: number | null, to: number | null) => void;
   onToggleOnlyPdf: () => void;
   onOpenAllFilters: () => void;
@@ -34,6 +37,7 @@ export function QuickFilterBar({
   filters,
   onSetLanguages,
   onSetCountries,
+  onSetCollections,
   onYearChange,
   onToggleOnlyPdf,
   onOpenAllFilters,
@@ -49,6 +53,9 @@ export function QuickFilterBar({
       role="group"
       aria-label="Filtros rápidos"
     >
+      {/* Repositories first: the most concrete way into the catalogue. */}
+      <SourceFilterBar buckets={stats.collections} selected={filters.collections} onSelect={onSetCollections} />
+
       {/* Phones: two selects side by side, then ONE horizontally scrollable row of chips. */}
       <div className="grid min-w-0 grid-cols-2 gap-2 sm:flex sm:flex-1 sm:flex-wrap sm:items-center">
         <div className="min-w-0 sm:min-w-[9rem] sm:flex-none">

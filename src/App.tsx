@@ -8,11 +8,13 @@ import { FacetSidebar } from './components/FacetSidebar';
 import { Header } from './components/Header';
 import { OfflineBanner } from './components/OfflineBanner';
 import { QuickFilterBar } from './components/QuickFilterBar';
+import { RecentShelf } from './components/RecentShelf';
 import { useCatalog } from './hooks/useCatalog';
 import { useReadingProgress } from './hooks/useReadingProgress';
 import { useShelves } from './hooks/useShelves';
 import { DOCTYPE_LABELS, LANGUAGE_LABELS, getArea, normalizePublications } from './lib/publication';
 import { readJson, readString, writeJson, writeString } from './lib/storage';
+import { sourceInfo } from './lib/sources';
 import type { CatalogFilters, DocumentType, LanguageCode, Publication } from './types/publication';
 
 // Heavy, rarely-needed surfaces are split out of the main bundle (P1).
@@ -48,9 +50,8 @@ function LoadingOverlay() {
 
 function initialViewMode(): 'grid' | 'list' {
   const stored = readString(VIEW_KEY);
-  if (stored === 'grid' || stored === 'list') return stored;
-  // R4: compact list by default on phones so the first results are above the fold
-  return typeof window !== 'undefined' && window.matchMedia('(max-width: 639px)').matches ? 'list' : 'grid';
+  // Covers first on every screen size; the list is an explicit choice the visitor made.
+  return stored === 'list' ? 'list' : 'grid';
 }
 
 /** Small snapshot kept so "Continuar leyendo" works even when the book is not in the current page of results. */
@@ -61,7 +62,6 @@ function slimPublication(pub: Publication): Publication {
 export function App() {
   const [darkMode, setDarkMode] = useState<boolean>(() => document.documentElement.classList.contains('dark'));
   const [viewMode, setViewMode] = useState<'grid' | 'list'>(initialViewMode);
-  const [enableLivePdfRender, setEnableLivePdfRender] = useState(false);
   const [showDesktopSidebar, setShowDesktopSidebar] = useState(false);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [selectedPublication, setSelectedPublication] = useState<Publication | null>(null);
@@ -113,6 +113,23 @@ export function App() {
   const handleViewModeChange = useCallback((mode: 'grid' | 'list') => {
     setViewMode(mode);
     writeString(VIEW_KEY, mode);
+  }, []);
+
+  // ---- "Recién llegados" illustrated shelf (SciELO Books WebP covers) ----
+  const [shelfCovers, setShelfCovers] = useState<Publication[]>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch('/api/catalog?collections=books&onlyPdf=1&sort=year-desc&limit=14&facets=0', {
+      signal: controller.signal,
+      headers: { Accept: 'application/json' }
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { items?: Publication[] } | null) => {
+        if (!data || !Array.isArray(data.items)) return;
+        setShelfCovers(data.items.filter((p): p is Publication => Boolean(p?.id && p.coverUrl)));
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
   }, []);
 
   // ---- toast (auto-dismiss) ----
@@ -208,11 +225,11 @@ export function App() {
     [updateFilters]
   );
   const handleSortChange = useCallback((sortBy: CatalogFilters['sortBy']) => updateFilters({ sortBy }), [updateFilters]);
-  const handleToggleLivePdf = useCallback(() => setEnableLivePdfRender((v) => !v), []);
   const handleCloseMobileFilters = useCallback(() => setMobileFiltersOpen(false), []);
   const handleOpenMobileFilters = useCallback(() => setMobileFiltersOpen(true), []);
   const handleToggleSidebar = useCallback(() => setShowDesktopSidebar((s) => !s), []);
   const handleOpenShelves = useCallback(() => setShelvesModalOpen(true), []);
+  const handleSetCollections = useCallback((codes: string[]) => setFacetValues('collections', codes), [setFacetValues]);
 
   // ---- "Continuar leyendo" ----
   const continueEntries = useMemo<ContinueEntry[]>(() => {
@@ -256,8 +273,8 @@ export function App() {
       });
     }
     for (const code of filters.collections) {
-      const label = stats.collections.find((c) => c.value === code)?.label ?? code;
-      chips.push({ key: `col-${code}`, label: `Colección: ${label}`, onRemove: () => toggleFacet('collections', code) });
+      const label = sourceInfo(code, stats.collections.find((c) => c.value === code)?.label).label;
+      chips.push({ key: `col-${code}`, label: `Repositorio: ${label}`, onRemove: () => toggleFacet('collections', code) });
     }
     if (filters.yearFrom !== null || filters.yearTo !== null) {
       chips.push({
@@ -268,6 +285,21 @@ export function App() {
     }
     return chips;
   }, [filters, stats.collections, toggleFacet, updateFilters]);
+
+  // "Recién llegados" only makes sense for the default newest-first order and an empty search
+  const showShelf = catalog.effectiveQuery.trim() === '' && filters.sortBy === 'year-desc';
+  const hasFacetFilters =
+    filters.oecdAreas.length > 0 ||
+    filters.languages.length > 0 ||
+    filters.countries.length > 0 ||
+    filters.docTypes.length > 0 ||
+    filters.collections.length > 0 ||
+    filters.yearFrom !== null ||
+    filters.yearTo !== null;
+  const recentShelfItems = useMemo(
+    () => (catalog.items.some((p) => Boolean(p.coverUrl)) || hasFacetFilters ? catalog.items : shelfCovers),
+    [catalog.items, hasFacetFilters, shelfCovers]
+  );
 
   const drawerItems = selectedPublication ? getPublicationShelves(selectedPublication.id) : [];
 
@@ -288,28 +320,36 @@ export function App() {
       />
 
       <section className="border-b" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-hairline)' }}>
-        <div className="mx-auto flex max-w-[1440px] items-center gap-5 px-4 py-4 sm:px-6 sm:py-7">
-          <div className="hidden shrink-0 sm:block">
-            <ColeebriLogo size={84} />
-          </div>
-          <div className="min-w-0">
-            <h1 className="font-editorial text-2xl font-semibold leading-tight tracking-tight sm:text-4xl">
-              Libros y artículos científicos, listos para leer
-            </h1>
-            <p className="mt-1.5 hidden max-w-2xl text-sm sm:block sm:text-base" style={{ color: 'var(--text-secondary)' }}>
-              Obras de acceso abierto de SciELO, OpenAlex y Crossref. Sin registro y sin descargas: abre y lee.
-            </p>
-            <div className="quickbar-scroll mt-3 flex items-center gap-2 overflow-x-auto sm:flex-wrap sm:overflow-visible">
-              <span className="shrink-0 text-sm" style={{ color: 'var(--text-muted)' }}>
-                Temas:
-              </span>
-              {TOPICS.map((topic) => (
-                <button key={topic} type="button" className="chip shrink-0" onClick={() => handleTopic(topic)}>
-                  {topic}
-                </button>
-              ))}
+        <div className="mx-auto max-w-[1440px] px-4 pb-1 pt-4 sm:px-6 sm:pt-6">
+          <div className="flex items-center gap-5">
+            <div className="hidden shrink-0 sm:block">
+              <ColeebriLogo size={72} />
+            </div>
+            <div className="min-w-0">
+              <h1 className="font-editorial text-balance text-[1.375rem] font-semibold leading-tight tracking-tight sm:text-4xl">
+                Libros y artículos científicos, listos para leer
+              </h1>
+              <p className="mt-1.5 hidden max-w-2xl text-sm sm:block sm:text-base" style={{ color: 'var(--text-secondary)' }}>
+                Obras de acceso abierto de repositorios académicos de Iberoamérica. Sin registro y sin descargas: abre y lee.
+              </p>
+              <div className="quickbar-scroll mt-3 hidden items-center gap-2 sm:flex sm:flex-wrap">
+                <span className="hidden shrink-0 text-sm sm:inline" style={{ color: 'var(--text-muted)' }}>
+                  Temas:
+                </span>
+                {TOPICS.map((topic) => (
+                  <button key={topic} type="button" className="chip shrink-0" onClick={() => handleTopic(topic)}>
+                    {topic}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
+
+          {showShelf ? (
+            <div className="mt-2 sm:mt-4">
+              <RecentShelf items={recentShelfItems} loading={catalog.loading && recentShelfItems.length === 0} onSelect={handleSelect} />
+            </div>
+          ) : null}
         </div>
       </section>
 
@@ -337,6 +377,7 @@ export function App() {
             filters={filters}
             onSetLanguages={(values) => setFacetValues('languages', values)}
             onSetCountries={(values) => setFacetValues('countries', values)}
+            onSetCollections={handleSetCollections}
             onYearChange={handleYearChange}
             onToggleOnlyPdf={handleToggleOnlyPdf}
             onOpenAllFilters={handleOpenMobileFilters}
@@ -379,14 +420,11 @@ export function App() {
             onRetry={catalog.reload}
             viewMode={viewMode}
             onViewModeChange={handleViewModeChange}
-            enableLivePdfRender={enableLivePdfRender}
-            onToggleLivePdfRender={handleToggleLivePdf}
             sortBy={filters.sortBy}
             onSortChange={handleSortChange}
             savedIds={savedPublicationIds}
             progressMap={progressMap}
             onSelect={handleSelect}
-            onReadPdf={handleReadPdf}
             onQuickSave={handleQuickSave}
             onResetFilters={resetFilters}
             onlyWithPdf={filters.onlyWithPdf}
@@ -408,8 +446,7 @@ export function App() {
       >
         <div className="mx-auto flex max-w-[1440px] flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <p className="max-w-3xl">
-            Coleebri reúne libros y artículos de acceso abierto de SciELO, OpenAlex y Crossref. Su imagen se inspira en
-            el colibrí de la Universidad Pedagógica Nacional de Colombia.
+            Coleebri reúne libros y artículos científicos de acceso abierto de SciELO, DOAB, Redalyc, OpenAlex y repositorios universitarios. Su imagen se inspira en el colibrí de la Universidad Pedagógica Nacional de Colombia.
           </p>
           <button type="button" className="btn btn-ghost btn-sm self-start" onClick={() => setSyncModalOpen(true)}>
             Estado del catálogo

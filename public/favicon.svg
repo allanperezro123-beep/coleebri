@@ -1,39 +1,121 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none">
-  <defs>
-    <linearGradient id="coleebriGrad" x1="16" y1="14" x2="104" y2="106" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#2575F0" />
-      <stop offset="55%" stop-color="#1758C4" />
-      <stop offset="100%" stop-color="#0E3E94" />
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs>
+    <!-- Degradados ala izquierda -->
+    <linearGradient id="wing_L1" x1="0%" y1="0%" x2="100%" y2="20%">
+      <stop offset="0%" stop-color="#096FC4" />
+      <stop offset="100%" stop-color="#0D84C1" />
     </linearGradient>
-    <linearGradient id="coleebriWing" x1="50" y1="20" x2="96" y2="68" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#3892F8" />
-      <stop offset="100%" stop-color="#1B64D8" />
+    <linearGradient id="wing_L2" x1="0%" y1="0%" x2="100%" y2="20%">
+      <stop offset="0%" stop-color="#0974C3" />
+      <stop offset="100%" stop-color="#0E77B8" />
     </linearGradient>
-  </defs>
-  <!-- Outer UPN-inspired circular medallion -->
-  <circle cx="60" cy="60" r="54" fill="#FAF9F6" stroke="url(#coleebriGrad)" stroke-width="6.5" />
-  <!-- Upper sweeping head & wing crest (forms P curve) -->
-  <path
-    d="M21 34C36 20 62 15 84 26C95 32 103 44 102 58C94 50 83 45 70 46C61 47 55 54 47 52C37 50 28 42 21 34Z"
-    fill="url(#coleebriWing)"
-  />
-  <!-- Lower left crest under beak -->
-  <path
-    d="M17 43C25 48 34 55 41 62C33 73 27 86 29 97C18 87 13 69 17 43Z"
-    fill="url(#coleebriGrad)"
-  />
-  <!-- Central vertical hummingbird chest / torso (U stem) -->
-  <path
-    d="M46 61C51 57 57 59 59 66C61 76 58 92 50 101C41 96 38 74 46 61Z"
-    fill="url(#coleebriGrad)"
-  />
-  <!-- Right tail & lower wing plumage (N tail) -->
-  <path
-    d="M64 53C78 51 91 57 101 67C98 85 84 100 65 103C72 91 75 78 72 67C69 60 66 57 64 53Z"
-    fill="url(#coleebriGrad)"
-  />
-  <!-- Subtle emerald-jade crest highlight + golden eye -->
-  <circle cx="48" cy="40" r="4.2" fill="#0E3E94" />
-  <circle cx="46.8" cy="38.8" r="1.4" fill="#FAF9F6" />
-  <path d="M58 29C71 26 83 31 91 40" stroke="#2D9B83" stroke-width="3" stroke-linecap="round" opacity="0.7" />
-</svg>
+    <linearGradient id="wing_L3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1D4C97" />
+      <stop offset="100%" stop-color="#163E82" />
+    </linearGradient>
+
+    <!-- Degradados ala derecha -->
+    <linearGradient id="wing_R1" x1="0%" y1="20%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#14B6C4" />
+      <stop offset="100%" stop-color="#0CD5D3" />
+    </linearGradient>
+    <linearGradient id="wing_R2" x1="0%" y1="20%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#14B9C6" />
+      <stop offset="100%" stop-color="#0DD7D4" />
+    </linearGradient>
+    <linearGradient id="wing_R3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#15AFC5" />
+      <stop offset="100%" stop-color="#1AB9C7" />
+    </linearGradient>
+
+    <!-- Degradados cabeza, cuello y pecho -->
+    <linearGradient id="head_grad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0E80CD" />
+      <stop offset="100%" stop-color="#0ADBF5" />
+    </linearGradient>
+    <linearGradient id="neck_grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0991CF" />
+      <stop offset="50%" stop-color="#0FD2DB" />
+      <stop offset="100%" stop-color="#14E0CC" />
+    </linearGradient>
+    <linearGradient id="breast_grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0F98C4" />
+      <stop offset="100%" stop-color="#0FC3BB" />
+    </linearGradient>
+
+    <!-- Degradados páginas del libro -->
+    <linearGradient id="page_L" x1="0%" y1="0%" x2="100%" y2="85%">
+      <stop offset="0%" stop-color="#05CEEE" />
+      <stop offset="55%" stop-color="#08A6DC" />
+      <stop offset="100%" stop-color="#097DCB" />
+    </linearGradient>
+    <linearGradient id="page_R" x1="0%" y1="0%" x2="100%" y2="85%">
+      <stop offset="0%" stop-color="#10AEC0" />
+      <stop offset="100%" stop-color="#0FD2CE" />
+    </linearGradient>
+
+    <!-- Degradados cola -->
+    <linearGradient id="tail_L" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0E77B7" />
+      <stop offset="100%" stop-color="#1F4D96" />
+    </linearGradient>
+    <linearGradient id="tail_C" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0C8CBC" />
+      <stop offset="100%" stop-color="#0FC3B7" />
+    </linearGradient>
+    <linearGradient id="tail_R" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0E82C4" />
+      <stop offset="100%" stop-color="#12B8B9" />
+    </linearGradient>
+  </defs><rect x="1.5" y="1.5" width="97" height="97" rx="22" fill="#FAF9F6" stroke="#092E63" stroke-opacity="0.14" stroke-width="2.5"/><g transform="translate(50 50) scale(0.140) translate(-512 -441)"><g id="coleebri-icon" stroke="#092E63" stroke-width="12" stroke-linejoin="round" stroke-linecap="round">
+
+    <!-- Plumas del ala izquierda -->
+    <path id="feather-L3" fill="url(#wing_L3)" d="M 298,376 C 300,412 324,430 356,432 L 356,376 Z" />
+    <path id="feather-L2" fill="url(#wing_L2)" d="M 260,316 C 266,364 300,386 356,390 L 356,326 Z" />
+    <path id="feather-L1" fill="url(#wing_L1)" d="M 228,244 C 230,298 266,332 384,354 L 384,316 Z" />
+
+    <!-- Plumas del ala derecha -->
+    <path id="feather-R3" fill="url(#wing_R3)" d="M 726,376 C 724,412 700,430 668,432 L 668,376 Z" />
+    <path id="feather-R2" fill="url(#wing_R2)" d="M 764,316 C 758,364 724,386 668,390 L 668,326 Z" />
+    <path id="feather-R1" fill="url(#wing_R1)" d="M 796,244 C 794,298 758,332 640,354 L 640,316 Z" />
+
+    <!-- Plumas de la cola -->
+    <path id="tail-left" fill="url(#tail_L)" d="M 480,504 L 448,558 C 440,574 446,594 464,606 L 496,626 L 504,516 Z" />
+    <path id="tail-right" fill="url(#tail_R)" d="M 544,504 L 576,558 C 584,574 578,594 560,606 L 528,626 L 520,516 Z" />
+    <path id="tail-center" fill="url(#tail_C)" d="M 512,516 L 476,612 L 512,638 L 548,612 Z" />
+
+    <!-- Cabeza, pico y cuello del colibrí -->
+    <path id="head-base" fill="url(#head_grad)" d="M 458,368 L 464,308 C 468,272 496,254 528,260 C 546,263 558,272 574,272 L 652,254 L 578,286 C 558,296 550,314 552,340 C 554,362 558,378 544,404 Z" />
+
+    <!-- Ojo del colibrí -->
+    <circle id="eye" cx="510" cy="290" r="10" fill="#092E63" stroke="none" />
+
+    <!-- Garganta / Pecho superior -->
+    <path id="throat-fold" fill="url(#neck_grad)" d="M 480,384 C 484,334 514,296 568,282 C 550,304 548,332 556,362 C 562,386 552,424 512,462 C 492,436 480,410 480,384 Z" />
+
+    <!-- Cubierta exterior del libro (estructura geométrica de líneas rectas y arco inferior) -->
+    <!-- Lado izquierdo exterior -->
+    <path id="book-cover-L" fill="none" d="M 356,344 L 356,472 C 412,474 464,492 506,526" />
+    <path id="book-inner-frame-L" fill="none" stroke-width="10" d="M 374,352 L 374,458 C 422,462 466,480 506,514" />
+
+    <!-- Lado derecho exterior -->
+    <path id="book-cover-R" fill="none" d="M 668,344 L 668,472 C 612,474 560,492 518,526" />
+    <path id="book-inner-frame-R" fill="none" stroke-width="10" d="M 650,352 L 650,458 C 602,462 558,480 518,514" />
+
+    <!-- Página derecha del libro (con borde interior cian claro) -->
+    <path id="book-page-R" fill="url(#page_R)" d="M 556,374 L 632,332 L 632,444 C 594,450 558,468 518,504 L 518,412 C 530,396 542,384 556,374 Z" />
+    <path id="book-page-R-highlight" fill="none" stroke="#9FF6FC" stroke-width="8" stroke-linejoin="miter" d="M 623,344 L 623,437 C 592,443 562,456 532,482" />
+    <!-- Re-trazo del borde marino de la página derecha para limpieza de superposición -->
+    <path id="book-page-R-outline" fill="none" d="M 556,374 L 632,332 L 632,444 C 594,450 558,468 518,504" />
+
+    <!-- Pliegue central del pecho (entre las dos páginas) -->
+    <path id="breast-center" fill="url(#breast_grad)" d="M 512,398 C 526,374 548,356 568,348 C 582,386 576,436 512,518 L 512,398 Z" />
+
+    <!-- Página izquierda del libro (con borde interior cian claro) -->
+    <path id="book-page-L" fill="url(#page_L)" d="M 392,320 L 392,444 C 436,450 474,472 512,518 L 512,398 C 482,362 440,338 392,320 Z" />
+    <path id="book-page-L-highlight" fill="none" stroke="#9FF6FC" stroke-width="8" stroke-linejoin="miter" d="M 401,332 L 401,437 C 436,443 468,460 498,494" />
+    <!-- Re-trazo del borde marino de la página izquierda -->
+    <path id="book-page-L-outline" fill="none" d="M 392,320 L 392,444 C 436,450 474,472 512,518 L 512,398 C 482,362 440,338 392,320 Z" />
+
+  </g>
+
+  </g></svg>

@@ -88,7 +88,7 @@ export function Header({
       <div className="mx-auto flex max-w-[1440px] items-center gap-2 px-4 py-2 sm:px-6 md:gap-4 md:py-3">
         {/* Brand */}
         <div className={`${searchOpen ? 'hidden md:flex' : 'flex'} shrink-0 items-center`}>
-          <ColeebriLogo size={36} showWordmark wordmarkClassName="hidden sm:flex" />
+          <ColeebriLogo size={40} showWordmark wordmarkClassName="hidden sm:flex" />
         </div>
 
         {/* Search combobox (always visible from md up; on phones it replaces the brand row) */}
@@ -212,7 +212,7 @@ export function Header({
             aria-label="Buscar en el catálogo"
             aria-expanded={searchOpen}
           >
-            <Search className="h-4 w-4" aria-hidden="true" />
+            <Search className="anim-icon-search h-4 w-4" aria-hidden="true" />
           </button>
 
           <button
@@ -221,7 +221,7 @@ export function Header({
             className="btn btn-quiet btn-sm"
             aria-label={`Mis estanterías, ${savedCount} ${savedCount === 1 ? 'obra guardada' : 'obras guardadas'}`}
           >
-            <Bookmark className="h-4 w-4" style={{ color: 'var(--accent-primary)' }} aria-hidden="true" />
+            <Bookmark className="anim-icon-bookmark h-4 w-4" style={{ color: 'var(--accent-primary)' }} aria-hidden="true" />
             <span className="hidden sm:inline">Estanterías</span>
             <span
               className="font-code rounded px-1.5 py-0.5 text-xs"
@@ -238,7 +238,11 @@ export function Header({
             className="btn btn-quiet btn-icon btn-sm"
             aria-label={darkMode ? 'Cambiar al tema claro' : 'Cambiar al tema oscuro'}
           >
-            {darkMode ? <Sun className="h-4 w-4" aria-hidden="true" /> : <Moon className="h-4 w-4" aria-hidden="true" />}
+            {darkMode ? (
+              <Sun className="anim-icon-theme h-4 w-4" aria-hidden="true" />
+            ) : (
+              <Moon className="anim-icon-theme h-4 w-4" aria-hidden="true" />
+            )}
           </button>
         </div>
       </div>

@@ -1,0 +1,146 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="170 200 684 620" width="100%" height="100%" role="img" aria-label="Coleebri Logo">
+  <defs>
+    <!-- Degradados ala izquierda -->
+    <linearGradient id="wing_L1" x1="0%" y1="0%" x2="100%" y2="20%">
+      <stop offset="0%" stop-color="#096FC4" />
+      <stop offset="100%" stop-color="#0D84C1" />
+    </linearGradient>
+    <linearGradient id="wing_L2" x1="0%" y1="0%" x2="100%" y2="20%">
+      <stop offset="0%" stop-color="#0974C3" />
+      <stop offset="100%" stop-color="#0E77B8" />
+    </linearGradient>
+    <linearGradient id="wing_L3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1D4C97" />
+      <stop offset="100%" stop-color="#163E82" />
+    </linearGradient>
+
+    <!-- Degradados ala derecha -->
+    <linearGradient id="wing_R1" x1="0%" y1="20%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#14B6C4" />
+      <stop offset="100%" stop-color="#0CD5D3" />
+    </linearGradient>
+    <linearGradient id="wing_R2" x1="0%" y1="20%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#14B9C6" />
+      <stop offset="100%" stop-color="#0DD7D4" />
+    </linearGradient>
+    <linearGradient id="wing_R3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#15AFC5" />
+      <stop offset="100%" stop-color="#1AB9C7" />
+    </linearGradient>
+
+    <!-- Degradados cabeza, cuello y pecho -->
+    <linearGradient id="head_grad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0E80CD" />
+      <stop offset="100%" stop-color="#0ADBF5" />
+    </linearGradient>
+    <linearGradient id="neck_grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0991CF" />
+      <stop offset="50%" stop-color="#0FD2DB" />
+      <stop offset="100%" stop-color="#14E0CC" />
+    </linearGradient>
+    <linearGradient id="breast_grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0F98C4" />
+      <stop offset="100%" stop-color="#0FC3BB" />
+    </linearGradient>
+
+    <!-- Degradados páginas del libro -->
+    <linearGradient id="page_L" x1="0%" y1="0%" x2="100%" y2="85%">
+      <stop offset="0%" stop-color="#05CEEE" />
+      <stop offset="55%" stop-color="#08A6DC" />
+      <stop offset="100%" stop-color="#097DCB" />
+    </linearGradient>
+    <linearGradient id="page_R" x1="0%" y1="0%" x2="100%" y2="85%">
+      <stop offset="0%" stop-color="#10AEC0" />
+      <stop offset="100%" stop-color="#0FD2CE" />
+    </linearGradient>
+
+    <!-- Degradados cola -->
+    <linearGradient id="tail_L" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0E77B7" />
+      <stop offset="100%" stop-color="#1F4D96" />
+    </linearGradient>
+    <linearGradient id="tail_C" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0C8CBC" />
+      <stop offset="100%" stop-color="#0FC3B7" />
+    </linearGradient>
+    <linearGradient id="tail_R" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0E82C4" />
+      <stop offset="100%" stop-color="#12B8B9" />
+    </linearGradient>
+  </defs>
+
+  <!-- ==================== ISOTIPO: COLIBRÍ + LIBRO ==================== -->
+  <g id="coleebri-icon" stroke="#092E63" stroke-width="12" stroke-linejoin="round" stroke-linecap="round">
+
+    <!-- Plumas del ala izquierda -->
+    <path id="feather-L3" fill="url(#wing_L3)" d="M 298,376 C 300,412 324,430 356,432 L 356,376 Z" />
+    <path id="feather-L2" fill="url(#wing_L2)" d="M 260,316 C 266,364 300,386 356,390 L 356,326 Z" />
+    <path id="feather-L1" fill="url(#wing_L1)" d="M 228,244 C 230,298 266,332 384,354 L 384,316 Z" />
+
+    <!-- Plumas del ala derecha -->
+    <path id="feather-R3" fill="url(#wing_R3)" d="M 726,376 C 724,412 700,430 668,432 L 668,376 Z" />
+    <path id="feather-R2" fill="url(#wing_R2)" d="M 764,316 C 758,364 724,386 668,390 L 668,326 Z" />
+    <path id="feather-R1" fill="url(#wing_R1)" d="M 796,244 C 794,298 758,332 640,354 L 640,316 Z" />
+
+    <!-- Plumas de la cola -->
+    <path id="tail-left" fill="url(#tail_L)" d="M 480,504 L 448,558 C 440,574 446,594 464,606 L 496,626 L 504,516 Z" />
+    <path id="tail-right" fill="url(#tail_R)" d="M 544,504 L 576,558 C 584,574 578,594 560,606 L 528,626 L 520,516 Z" />
+    <path id="tail-center" fill="url(#tail_C)" d="M 512,516 L 476,612 L 512,638 L 548,612 Z" />
+
+    <!-- Cabeza, pico y cuello del colibrí -->
+    <path id="head-base" fill="url(#head_grad)" d="M 458,368 L 464,308 C 468,272 496,254 528,260 C 546,263 558,272 574,272 L 652,254 L 578,286 C 558,296 550,314 552,340 C 554,362 558,378 544,404 Z" />
+
+    <!-- Ojo del colibrí -->
+    <circle id="eye" cx="510" cy="290" r="10" fill="#092E63" stroke="none" />
+
+    <!-- Garganta / Pecho superior -->
+    <path id="throat-fold" fill="url(#neck_grad)" d="M 480,384 C 484,334 514,296 568,282 C 550,304 548,332 556,362 C 562,386 552,424 512,462 C 492,436 480,410 480,384 Z" />
+
+    <!-- Cubierta exterior del libro (estructura geométrica de líneas rectas y arco inferior) -->
+    <!-- Lado izquierdo exterior -->
+    <path id="book-cover-L" fill="none" d="M 356,344 L 356,472 C 412,474 464,492 506,526" />
+    <path id="book-inner-frame-L" fill="none" stroke-width="10" d="M 374,352 L 374,458 C 422,462 466,480 506,514" />
+
+    <!-- Lado derecho exterior -->
+    <path id="book-cover-R" fill="none" d="M 668,344 L 668,472 C 612,474 560,492 518,526" />
+    <path id="book-inner-frame-R" fill="none" stroke-width="10" d="M 650,352 L 650,458 C 602,462 558,480 518,514" />
+
+    <!-- Página derecha del libro (con borde interior cian claro) -->
+    <path id="book-page-R" fill="url(#page_R)" d="M 556,374 L 632,332 L 632,444 C 594,450 558,468 518,504 L 518,412 C 530,396 542,384 556,374 Z" />
+    <path id="book-page-R-highlight" fill="none" stroke="#9FF6FC" stroke-width="8" stroke-linejoin="miter" d="M 623,344 L 623,437 C 592,443 562,456 532,482" />
+    <!-- Re-trazo del borde marino de la página derecha para limpieza de superposición -->
+    <path id="book-page-R-outline" fill="none" d="M 556,374 L 632,332 L 632,444 C 594,450 558,468 518,504" />
+
+    <!-- Pliegue central del pecho (entre las dos páginas) -->
+    <path id="breast-center" fill="url(#breast_grad)" d="M 512,398 C 526,374 548,356 568,348 C 582,386 576,436 512,518 L 512,398 Z" />
+
+    <!-- Página izquierda del libro (con borde interior cian claro) -->
+    <path id="book-page-L" fill="url(#page_L)" d="M 392,320 L 392,444 C 436,450 474,472 512,518 L 512,398 C 482,362 440,338 392,320 Z" />
+    <path id="book-page-L-highlight" fill="none" stroke="#9FF6FC" stroke-width="8" stroke-linejoin="miter" d="M 401,332 L 401,437 C 436,443 468,460 498,494" />
+    <!-- Re-trazo del borde marino de la página izquierda -->
+    <path id="book-page-L-outline" fill="none" d="M 392,320 L 392,444 C 436,450 474,472 512,518 L 512,398 C 482,362 440,338 392,320 Z" />
+
+  </g>
+
+  <!-- ==================== LOGOTIPO: COLEEBRI ==================== -->
+  <!-- Trazos geométricos puros (sin distorsión de curvas) -->
+  <g id="coleebri-wordmark" fill="#092D63">
+    <!-- C -->
+    <path d="M 268,782 C 235,782 212,758 212,727 C 212,696 235,672 268,672 C 285,672 300,679 310,691 L 296,704 C 289,695 279,690 268,690 C 246,690 231,705 231,727 C 231,749 246,764 268,764 C 279,764 289,759 296,750 L 310,763 C 300,775 285,782 268,782 Z" />
+    <!-- o -->
+    <path fill-rule="evenodd" d="M 360,698 C 385,698 403,716 403,740 C 403,764 385,782 360,782 C 335,782 317,764 317,740 C 317,716 335,698 360,698 Z M 360,715 C 346,715 335,725 335,740 C 335,755 346,765 360,765 C 374,765 385,755 385,740 C 385,725 374,715 360,715 Z" />
+    <!-- l -->
+    <rect x="417" y="670" width="19" height="110" rx="2" />
+    <!-- e (1) -->
+    <path fill-rule="evenodd" d="M 490,698 C 515,698 531,716 531,741 L 531,746 L 467,746 C 469,758 479,766 492,766 C 501,766 509,762 515,756 L 526,768 C 518,777 506,782 491,782 C 466,782 448,765 448,740 C 448,716 466,698 490,698 Z M 467,733 L 513,733 C 511,721 502,714 490,714 C 478,714 469,721 467,733 Z" />
+    <!-- e (2) -->
+    <path fill-rule="evenodd" d="M 580,698 C 605,698 621,716 621,741 L 621,746 L 557,746 C 559,758 569,766 582,766 C 591,766 599,762 605,756 L 616,768 C 608,777 596,782 581,782 C 556,782 538,765 538,740 C 538,716 556,698 580,698 Z M 557,733 L 603,733 C 601,721 592,714 580,714 C 568,714 559,721 557,733 Z" />
+    <!-- b -->
+    <path fill-rule="evenodd" d="M 634,670 L 653,670 L 653,710 C 660,702 670,698 681,698 C 703,698 720,715 720,740 C 720,765 703,782 681,782 C 670,782 660,778 653,770 L 653,780 L 634,780 Z M 677,715 C 663,715 653,725 653,740 C 653,755 663,765 677,765 C 691,765 701,755 701,740 C 701,725 691,715 677,715 Z" />
+    <!-- r -->
+    <path d="M 732,700 L 751,700 L 751,713 C 756,703 766,698 778,698 L 778,717 C 776,716 774,716 771,716 C 759,716 751,724 751,738 L 751,780 L 732,780 Z" />
+    <!-- i -->
+    <circle cx="798" cy="678" r="11" />
+    <rect x="788.5" y="700" width="19" height="80" rx="2" />
+  </g>
+</svg>

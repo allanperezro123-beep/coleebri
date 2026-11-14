@@ -10,9 +10,10 @@ import {
   langAttr
 } from '../lib/publication';
 import { safeExternalUrl, safeHexColor } from '../lib/safeUrl';
+import { sourceInfo } from '../lib/sources';
 import type { CitationFormat, Publication, Shelf, ShelfItem } from '../types/publication';
 import { Modal } from './Modal';
-import { PdfCoverThumbnail } from './PdfCoverThumbnail';
+import { BookCover } from './BookCover';
 
 interface PreviewDrawerProps {
   /** The parent mounts the drawer with `key={publication.id}`, so all local state resets per work. */
@@ -34,6 +35,9 @@ const CITATION_TABS: Array<{ id: CitationFormat; label: string }> = [
 ];
 
 type CopyState = 'idle' | 'ok' | 'error';
+
+/** 12-13 rem wide: always the 640 px WebP on dense screens, the 320 px one on 1x. */
+const DRAWER_COVER_SIZES = '(min-width: 640px) 13rem, 12rem';
 
 export function PreviewDrawer({
   publication,
@@ -80,6 +84,7 @@ export function PreviewDrawer({
   const citationText = formatCitation(publication, citationFormat);
   const lang = langAttr(publication);
   const hasText = Boolean(publication.pdfUrl);
+  const source = sourceInfo(publication.collectionCode, publication.collection);
   const scieloHref = safeExternalUrl(publication.scieloUrl);
   const doiHref = safeExternalUrl(doiUrl(publication.doi));
   const activeTab = CITATION_TABS.findIndex((t) => t.id === citationFormat);
@@ -140,16 +145,19 @@ export function PreviewDrawer({
       </div>
 
       <div className="modal-body p-4 sm:p-6">
-        <div className="flex flex-col gap-5 sm:flex-row">
-          <div className="w-32 shrink-0 sm:w-40">
-            <PdfCoverThumbnail
+        <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-start">
+          <div className="cover-slot w-48 shrink-0 sm:w-52">
+            <BookCover
               publication={publication}
-              enableLivePdfRender={hasText}
-              className="aspect-[3/4] w-full rounded-[4px] shadow-sm"
+              variant="drawer"
+              sizes={DRAWER_COVER_SIZES}
+              priority
+              labelled
+              className="drawer-cover"
             />
           </div>
 
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 self-stretch">
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
               {[
                 DOCTYPE_LABELS[publication.docType],
@@ -164,50 +172,45 @@ export function PreviewDrawer({
             <h2
               id={titleId}
               lang={lang}
-              className="font-editorial mt-1 text-xl font-semibold leading-snug sm:text-2xl"
+              className="font-editorial mt-1 text-balance text-2xl font-semibold leading-tight sm:text-[1.75rem]"
             >
               {publication.title}
             </h2>
 
-            <p className="mt-2 text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+            <p className="mt-2 text-[0.9375rem] font-medium" style={{ color: 'var(--text-secondary)' }}>
               {publication.authors.length > 0 ? publication.authors.join(' · ') : publication.publisher}
             </p>
-            <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>
+            <p className="mt-1 text-sm" style={{ color: 'var(--text-muted)' }}>
               Editorial: <span style={{ color: 'var(--text-secondary)' }}>{publication.publisher}</span>
               {publication.citedByCount ? ` · ${publication.citedByCount} citas` : ''}
             </p>
 
-            <div className="font-code mt-3 flex flex-wrap gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
-              {doiHref && publication.doi ? (
-                <a
-                  href={doiHref}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="rounded border px-2 py-1 hover:underline"
-                  style={{ borderColor: 'var(--border-hairline)', backgroundColor: 'var(--bg-surface)' }}
-                >
-                  DOI: {publication.doi.replace(/^https?:\/\/(dx\.)?doi\.org\//i, '')}
-                </a>
-              ) : null}
-              {publication.isbn ? (
-                <span
-                  className="rounded border px-2 py-1"
-                  style={{ borderColor: 'var(--border-hairline)', backgroundColor: 'var(--bg-surface)' }}
-                >
-                  ISBN: {publication.isbn}
-                </span>
-              ) : null}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span
+                className="inline-flex min-h-7 items-center rounded border px-2 text-xs font-semibold"
+                style={{ borderColor: 'var(--border-strong)', backgroundColor: 'var(--bg-surface)' }}
+                title={source.description || undefined}
+              >
+                {source.label}
+              </span>
+              <span
+                className="inline-flex min-h-7 items-center gap-1 text-xs font-semibold"
+                style={{ color: hasText ? 'var(--accent-jade)' : 'var(--text-muted)' }}
+              >
+                {hasText ? <BookOpen className="h-3.5 w-3.5" aria-hidden="true" /> : null}
+                {hasText ? 'Texto completo' : 'Solo ficha'}
+              </span>
             </div>
 
-            <div className="mt-4 flex flex-wrap gap-2">
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
               {hasText ? (
                 <button
                   type="button"
                   onClick={() => onOpenReader(publication, resumePage)}
-                  className="btn btn-primary"
+                  className="btn btn-primary btn-lg"
                 >
-                  <BookOpen className="h-4 w-4" aria-hidden="true" />
-                  <span>{resumePage && resumePage > 1 ? `Continuar en la página ${resumePage}` : 'Leer'}</span>
+                  <BookOpen className="h-5 w-5" aria-hidden="true" />
+                  <span>{resumePage && resumePage > 1 ? `Continuar en la página ${resumePage}` : 'Leer ahora'}</span>
                 </button>
               ) : null}
               {scieloHref ? (
@@ -215,17 +218,41 @@ export function PreviewDrawer({
                   href={scieloHref}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`btn ${hasText ? 'btn-quiet' : 'btn-primary'}`}
+                  className={`btn btn-lg ${hasText ? 'btn-quiet' : 'btn-primary'}`}
                 >
                   <ExternalLink className="h-4 w-4" aria-hidden="true" />
-                  <span>Abrir en SciELO</span>
+                  <span>Ver en {source.short}</span>
                 </a>
               ) : null}
             </div>
             {!hasText ? (
-              <p className="mt-2 text-sm" style={{ color: 'var(--text-muted)' }}>
+              <p className="mt-3 text-sm" style={{ color: 'var(--text-muted)' }}>
                 Esta obra no tiene texto completo disponible para leer aquí. Puedes consultarla en el sitio de origen.
               </p>
+            ) : null}
+
+            {(doiHref && publication.doi) || publication.isbn ? (
+              <div className="font-code mt-4 flex flex-wrap gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
+                {doiHref && publication.doi ? (
+                  <a
+                    href={doiHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded border px-2 py-1 hover:underline"
+                    style={{ borderColor: 'var(--border-hairline)', backgroundColor: 'var(--bg-surface)' }}
+                  >
+                    DOI: {publication.doi.replace(/^https?:\/\/(dx\.)?doi\.org\//i, '')}
+                  </a>
+                ) : null}
+                {publication.isbn ? (
+                  <span
+                    className="rounded border px-2 py-1"
+                    style={{ borderColor: 'var(--border-hairline)', backgroundColor: 'var(--bg-surface)' }}
+                  >
+                    ISBN: {publication.isbn}
+                  </span>
+                ) : null}
+              </div>
             ) : null}
           </div>
         </div>

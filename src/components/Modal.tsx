@@ -49,10 +49,12 @@ export function Modal({ onClose, labelledBy, variant = 'center', size = 'lg', cl
         e.preventDefault();
         onCloseRef.current();
       }}
-      onClose={() => {
+      onClose={(e) => {
         // The browser may close a dialog natively (e.g. a repeated Esc ignores preventDefault):
         // keep React state in sync so the parent doesn't think it is still open.
-        if (!unmountingRef.current) onCloseRef.current();
+        // `close` is dispatched asynchronously: in dev, StrictMode closes and immediately re-opens
+        // the dialog, so a late event for the first close must be ignored while it is open again.
+        if (!unmountingRef.current && !e.currentTarget.open) onCloseRef.current();
       }}
       onMouseDown={(e) => {
         pressStartedOnBackdrop.current = e.target === e.currentTarget;

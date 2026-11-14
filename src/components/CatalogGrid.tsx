@@ -1,5 +1,5 @@
 import { memo, useEffect, useId, useRef } from 'react';
-import { ArrowUpDown, FileImage, Globe2, LayoutGrid, List, Loader2, SearchX, TriangleAlert, X } from 'lucide-react';
+import { ArrowUpDown, Globe2, LayoutGrid, List, Loader2, TriangleAlert, X } from 'lucide-react';
 import type { ProgressMap } from '../hooks/useReadingProgress';
 import type { CatalogFilters, Publication } from '../types/publication';
 import { BookCard } from './BookCard';
@@ -17,14 +17,11 @@ interface CatalogGridProps {
   onRetry: () => void;
   viewMode: 'grid' | 'list';
   onViewModeChange: (mode: 'grid' | 'list') => void;
-  enableLivePdfRender: boolean;
-  onToggleLivePdfRender: () => void;
   sortBy: CatalogFilters['sortBy'];
   onSortChange: (sort: CatalogFilters['sortBy']) => void;
   savedIds: Set<string>;
   progressMap: ProgressMap;
   onSelect: (pub: Publication) => void;
-  onReadPdf: (pub: Publication) => void;
   onQuickSave: (pub: Publication) => void;
   onResetFilters: () => void;
   onlyWithPdf: boolean;
@@ -38,25 +35,25 @@ interface CatalogGridProps {
   onClearLive: () => void;
 }
 
-const GRID_CLASS = 'grid grid-cols-1 gap-4 min-[480px]:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4';
+/** Cover-first grid: 2 columns from 340 px, 3 at sm, 4 at lg, 5-6 on wide screens. Keep in sync with GRID_COVER_SIZES. */
+const GRID_CLASS =
+  'grid grid-cols-1 gap-x-2 gap-y-3 min-[340px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6';
+const LIST_CLASS = 'flex flex-col';
+const PRIORITY_COVERS = 4;
 
 function Skeletons({ viewMode }: { viewMode: 'grid' | 'list' }) {
   if (viewMode === 'list') {
     return (
-      <div className="flex flex-col gap-2.5" aria-hidden="true">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <div
-            key={i}
-            className="book-card flex h-[92px] items-center gap-3 p-3"
-            style={{ contentVisibility: 'visible' }}
-          >
-            <div className="skeleton h-12 w-1" />
-            <div className="flex-1">
+      <div className={LIST_CLASS} aria-hidden="true">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="book-row" style={{ contentVisibility: 'visible' }}>
+            <div className="cover skeleton-cover w-14 shrink-0" />
+            <div className="min-w-0 flex-1">
               <div className="skeleton h-4 w-4/5" />
               <div className="skeleton mt-2 h-3 w-1/2" />
               <div className="skeleton mt-2 h-3 w-1/3" />
             </div>
-            <div className="skeleton h-11 w-20" />
+            <div className="skeleton h-9 w-9" />
           </div>
         ))}
       </div>
@@ -64,13 +61,15 @@ function Skeletons({ viewMode }: { viewMode: 'grid' | 'list' }) {
   }
   return (
     <div className={GRID_CLASS} aria-hidden="true">
-      {Array.from({ length: 8 }).map((_, i) => (
-        <div key={i} className="book-card p-3" style={{ contentVisibility: 'visible' }}>
-          <div className="skeleton aspect-[3/4] w-full" />
-          <div className="skeleton mt-3 h-3 w-1/3" />
-          <div className="skeleton mt-2 h-4 w-5/6" />
-          <div className="skeleton mt-2 h-3 w-2/3" />
-          <div className="skeleton mt-4 h-9 w-full" />
+      {Array.from({ length: 12 }).map((_, i) => (
+        <div key={i} className="book-tile" style={{ contentVisibility: 'visible' }}>
+          <div className="cover skeleton-cover" />
+          <div>
+            <div className="skeleton h-4 w-11/12" />
+            <div className="skeleton mt-1.5 h-4 w-2/3" />
+            <div className="skeleton mt-2.5 h-3 w-1/2" />
+            <div className="skeleton mt-2 h-3 w-1/3" />
+          </div>
         </div>
       ))}
     </div>
@@ -90,14 +89,11 @@ export const CatalogGrid = memo(function CatalogGrid({
   onRetry,
   viewMode,
   onViewModeChange,
-  enableLivePdfRender,
-  onToggleLivePdfRender,
   sortBy,
   onSortChange,
   savedIds,
   progressMap,
   onSelect,
-  onReadPdf,
   onQuickSave,
   onResetFilters,
   onlyWithPdf,
@@ -130,17 +126,17 @@ export const CatalogGrid = memo(function CatalogGrid({
     return () => observer.disconnect();
   }, [hasMore, loadMoreError, loadingMore, loading, items.length]);
 
-  const renderCards = (list: Publication[], mode: 'grid' | 'list') =>
-    list.map((pub) => (
+  const renderCards = (list: Publication[], mode: 'grid' | 'list', eager = false) =>
+    list.map((pub, index) => (
       <BookCard
         key={pub.id}
         publication={pub}
         viewMode={mode}
-        enableLivePdfRender={enableLivePdfRender}
         isSaved={savedIds.has(pub.id)}
         progress={progressMap[pub.id]}
+        priority={eager && index < PRIORITY_COVERS}
+        staggerIndex={index % 24}
         onSelect={onSelect}
-        onReadPdf={onReadPdf}
         onQuickSave={onQuickSave}
       />
     ));
@@ -150,13 +146,13 @@ export const CatalogGrid = memo(function CatalogGrid({
     ? 'Cargando obras…'
     : total === 0
       ? 'Sin obras para mostrar'
-      : `Mostrando ${items.length} de ${total} ${total === 1 ? 'obra' : 'obras'}`;
+      : `${items.length} de ${total} ${total === 1 ? 'obra' : 'obras'}`;
 
   return (
     <div className="min-w-0">
       <div
-        className="mb-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-md border px-3.5 py-2"
-        style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-hairline)' }}
+        className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b pb-3"
+        style={{ borderColor: 'var(--border-hairline)' }}
       >
         <p role="status" aria-live="polite" className="text-sm font-semibold">
           {countText}
@@ -171,19 +167,6 @@ export const CatalogGrid = memo(function CatalogGrid({
                 <Globe2 className="h-4 w-4" aria-hidden="true" />
               )}
               <span>Buscar también en SciELO</span>
-            </button>
-          ) : null}
-
-          {viewMode === 'grid' ? (
-            <button
-              type="button"
-              className="chip hidden sm:inline-flex"
-              aria-pressed={enableLivePdfRender}
-              onClick={onToggleLivePdfRender}
-              title="Muestra la primera página del PDF como portada"
-            >
-              <FileImage className="h-3.5 w-3.5" aria-hidden="true" />
-              <span>Portadas desde el PDF</span>
             </button>
           ) : null}
 
@@ -271,7 +254,7 @@ export const CatalogGrid = memo(function CatalogGrid({
             </button>
           </div>
           {viewMode === 'list' ? (
-            <div className="flex flex-col gap-2.5">{renderCards(liveItems, 'list')}</div>
+            <div className={LIST_CLASS}>{renderCards(liveItems, 'list')}</div>
           ) : (
             <div className={GRID_CLASS}>{renderCards(liveItems, 'grid')}</div>
           )}
@@ -281,11 +264,17 @@ export const CatalogGrid = memo(function CatalogGrid({
       {loading ? (
         <Skeletons viewMode={viewMode} />
       ) : showEmpty ? (
-        <div
-          className="flex flex-col items-center justify-center rounded-md border px-6 py-14 text-center"
-          style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-hairline)' }}
-        >
-          <SearchX className="mb-3 h-9 w-9" style={{ color: 'var(--text-muted)' }} aria-hidden="true" />
+        <div className="flex flex-col items-center justify-center px-6 py-12 text-center">
+          {/* an empty shelf: the same plank the covers stand on, with room for books that are not there */}
+          <div className="shelf-scroll mb-5 overflow-visible" style={{ ['--shelf-gutter' as string]: '1.25rem', marginInline: 0 }} aria-hidden="true">
+            <ul className="shelf-books" style={{ minWidth: 0 }}>
+              {[0, 1, 2].map((i) => (
+                <li key={i} style={{ width: '2.75rem', opacity: 1 - i * 0.2 }}>
+                  <div className="cover" data-empty="true" />
+                </li>
+              ))}
+            </ul>
+          </div>
           <h2 className="font-editorial text-xl font-semibold">No encontramos obras con esos filtros</h2>
           <p className="mt-1 max-w-md text-sm" style={{ color: 'var(--text-secondary)' }}>
             {query.trim()
@@ -312,9 +301,9 @@ export const CatalogGrid = memo(function CatalogGrid({
         <div
           aria-busy={refreshing}
           style={{ opacity: refreshing ? 0.55 : 1, transition: 'opacity 0.15s' }}
-          className={viewMode === 'list' ? 'flex flex-col gap-2.5' : GRID_CLASS}
+          className={viewMode === 'list' ? LIST_CLASS : GRID_CLASS}
         >
-          {renderCards(items, viewMode)}
+          {renderCards(items, viewMode, true)}
         </div>
       )}
 

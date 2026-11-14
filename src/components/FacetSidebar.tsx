@@ -1,6 +1,7 @@
 import { useEffect, useId } from 'react';
 import { RotateCcw } from 'lucide-react';
 import { areaFillColor, areaTextColor } from '../lib/publication';
+import { sourceInfo } from '../lib/sources';
 import type {
   CatalogFilters,
   CatalogStats,
@@ -80,6 +81,46 @@ function FacetContent({
           style={{ accentColor: 'var(--accent-primary)' }}
         />
       </label>
+
+      {stats.collections.length > 0 ? (
+        <section aria-labelledby={`${uid}-collections`}>
+          <h3 id={`${uid}-collections`} className="micro mb-2">
+            Repositorio de origen
+          </h3>
+          <div className="flex flex-col gap-0.5">
+            {stats.collections.map((bucket) => {
+              const selected = filters.collections.includes(bucket.value);
+              const source = sourceInfo(bucket.value, bucket.label);
+              return (
+                <button
+                  key={bucket.value}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => onToggleFacet('collections', bucket.value)}
+                  className="flex min-h-11 items-center justify-between gap-3 rounded px-2.5 py-1.5 text-left text-sm transition-colors hover:bg-[var(--bg-hover)] sm:min-h-10"
+                  style={{
+                    backgroundColor: selected ? 'var(--bg-hover)' : undefined,
+                    boxShadow: selected ? 'inset 3px 0 0 var(--accent-primary)' : undefined,
+                    color: selected ? 'var(--text-primary)' : 'var(--text-secondary)'
+                  }}
+                >
+                  <span className="min-w-0">
+                    <span className={`block truncate ${selected ? 'font-semibold' : ''}`}>{source.label}</span>
+                    {source.description ? (
+                      <span className="block text-xs leading-snug" style={{ color: 'var(--text-muted)' }}>
+                        {source.description}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="font-code shrink-0 text-xs" style={{ color: 'var(--text-muted)' }}>
+                    {bucket.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
 
       <section aria-labelledby={`${uid}-areas`}>
         <h3 id={`${uid}-areas`} className="micro mb-2">
@@ -241,36 +282,6 @@ function FacetContent({
         </div>
       </section>
 
-      {stats.collections.length > 0 ? (
-        <section aria-labelledby={`${uid}-collections`}>
-          <h3 id={`${uid}-collections`} className="micro mb-2">
-            Colección de origen
-          </h3>
-          <div className="flex flex-col gap-0.5">
-            {stats.collections.map((bucket) => {
-              const selected = filters.collections.includes(bucket.value);
-              return (
-                <button
-                  key={bucket.value}
-                  type="button"
-                  aria-pressed={selected}
-                  onClick={() => onToggleFacet('collections', bucket.value)}
-                  className="flex min-h-11 items-center justify-between gap-2 rounded px-2.5 py-1.5 text-left text-sm transition-colors hover:bg-[var(--bg-hover)] sm:min-h-9"
-                  style={{
-                    backgroundColor: selected ? 'var(--bg-hover)' : undefined,
-                    color: selected ? 'var(--text-primary)' : 'var(--text-secondary)'
-                  }}
-                >
-                  <span className={selected ? 'font-semibold' : ''}>{bucket.label}</span>
-                  <span className="font-code text-xs" style={{ color: 'var(--text-muted)' }}>
-                    {bucket.count}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </section>
-      ) : null}
     </div>
   );
 }

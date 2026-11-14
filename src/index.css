@@ -20,11 +20,13 @@
   --border-strong: rgba(22, 24, 28, 0.22);
   --scrim: rgba(14, 17, 22, 0.55);
 
-  /* Identity: UPN cobalt hummingbird */
+  /* Identity: Coleebri navy/cobalt/turquoise hummingbird */
   --accent-primary: #1758C4;
   --accent-primary-soft: color-mix(in oklab, var(--accent-primary) 10%, transparent);
   --on-accent: #FAF9F6; /* text on filled accent surfaces (6.2:1) */
   --accent-upn: var(--accent-primary);
+  --logo-ink: #092E63;
+  --logo-wordmark: #092D63;
   /* Legacy names kept as aliases so older rules (reader, etc.) keep working */
   --accent-crimson: var(--accent-primary);
   --accent-crimson-soft: var(--accent-primary-soft);
@@ -65,6 +67,17 @@
   --shadow-card: 0 1px 2px rgba(22, 24, 28, 0.06), 0 4px 14px rgba(22, 24, 28, 0.06);
   --shadow-pop: 0 10px 40px rgba(22, 24, 28, 0.22);
 
+  /* Covers: paper shadow, hairline edge, binding crease, generated-cover tint, shelf plank */
+  --cover-edge: rgba(22, 24, 28, 0.14);
+  --cover-shadow: 0 1px 1px rgba(22, 24, 28, 0.1), 0 4px 10px -2px rgba(22, 24, 28, 0.16);
+  --cover-shadow-lift: 0 2px 2px rgba(22, 24, 28, 0.1), 0 10px 20px -6px rgba(22, 24, 28, 0.3);
+  --cover-crease-dark: rgba(22, 24, 28, 0.16);
+  --cover-crease-light: rgba(252, 251, 248, 0.24);
+  --gc-mix: 16%; /* area tint of a generated cover (keeps the area-coloured label >= 4.5:1) */
+  --shelf-top: #e6e0d3;
+  --shelf-front: #cfc7b4;
+  --shelf-shade: rgba(22, 24, 28, 0.14);
+
   --ease-glide: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
@@ -87,6 +100,8 @@
   --accent-primary: #5B9BFF;
   --accent-primary-soft: color-mix(in oklab, var(--accent-primary) 16%, transparent);
   --on-accent: #0E1116; /* ivory on #5B9BFF was 2.6:1; ink is 6.8:1 */
+  --logo-ink: #DCE7FA;
+  --logo-wordmark: #EDF2FB;
 
   --accent-jade: #47B89C;
   --accent-jade-fill: #47B89C;
@@ -111,6 +126,17 @@
 
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 14px rgba(0, 0, 0, 0.25);
   --shadow-pop: 0 10px 40px rgba(0, 0, 0, 0.55);
+
+  /* A dark cover must not melt into the night page: lighter hairline + a faint halo */
+  --cover-edge: rgba(237, 239, 243, 0.22);
+  --cover-shadow: 0 0 0 1px rgba(237, 239, 243, 0.05), 0 4px 12px -2px rgba(0, 0, 0, 0.6);
+  --cover-shadow-lift: 0 0 0 1px rgba(237, 239, 243, 0.1), 0 12px 24px -6px rgba(0, 0, 0, 0.7);
+  --cover-crease-dark: rgba(5, 7, 10, 0.3);
+  --cover-crease-light: rgba(237, 239, 243, 0.14);
+  --gc-mix: 18%;
+  --shelf-top: #262d3a;
+  --shelf-front: #1b212b;
+  --shelf-shade: rgba(0, 0, 0, 0.4);
 }
 
 /* ------------------------------------------------------------------ */
@@ -256,7 +282,16 @@
     line-height: 1.1;
     white-space: nowrap;
     text-decoration: none;
-    transition: background-color 0.15s, border-color 0.15s, opacity 0.15s, transform 0.15s;
+    transition:
+      background-color 0.2s var(--ease-glide),
+      border-color 0.2s var(--ease-glide),
+      color 0.2s var(--ease-glide),
+      box-shadow 0.2s var(--ease-glide),
+      opacity 0.15s,
+      transform 0.18s var(--ease-spring);
+  }
+  .btn:active:not(:disabled) {
+    transform: scale(0.968);
   }
   .btn:disabled {
     opacity: 0.5;
@@ -265,6 +300,11 @@
     min-height: 2.75rem;
     padding: 0 0.85rem;
     font-size: 0.8125rem;
+  }
+  .btn-lg {
+    min-height: 3rem;
+    padding: 0 1.25rem;
+    font-size: 0.9375rem;
   }
   .btn-primary {
     background-color: var(--accent-primary);
@@ -324,7 +364,11 @@
     font-weight: 500;
     line-height: 1.1;
     white-space: nowrap;
-    transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+    transition:
+      background-color 0.2s var(--ease-glide),
+      border-color 0.2s var(--ease-glide),
+      color 0.2s var(--ease-glide),
+      transform 0.2s var(--ease-spring);
   }
   /* A8: 44px hit area without changing the visual size */
   .chip::after {
@@ -334,6 +378,10 @@
   }
   .chip:hover {
     background-color: var(--bg-hover);
+    transform: translateY(-1px);
+  }
+  .chip:active {
+    transform: scale(0.96);
   }
   .chip[aria-pressed='true'] {
     border-color: var(--accent-primary);
@@ -398,7 +446,8 @@
   }
   .modal-dialog::backdrop {
     background: var(--scrim);
-    backdrop-filter: blur(2px);
+    backdrop-filter: blur(3px);
+    animation: scrim-in 0.24s var(--ease-glide);
   }
   .modal-dialog[data-size='sm'] {
     max-width: 36rem;
@@ -438,35 +487,362 @@
     padding-bottom: env(safe-area-inset-bottom);
   }
 
-  /* ---- cards ---- */
-  .book-card {
+  /* ---- covers ---- */
+  /* Fixed 2:3 frame: the layout never shifts while an image loads. `cqw` units inside it make
+     the generated cover scale with the frame (56 px list thumbnail -> 240 px preview). */
+  .cover {
     position: relative;
-    background-color: var(--bg-card);
-    border: 1px solid var(--border-hairline);
+    aspect-ratio: 2 / 3;
+    overflow: hidden;
+    isolation: isolate;
+    border-radius: 3px;
+    background-color: var(--bg-surface);
+    box-shadow: var(--cover-shadow);
+    container-type: inline-size;
+    transition: transform 0.35s var(--ease-glide), box-shadow 0.35s var(--ease-glide);
+  }
+  /* Hairline edge + binding crease, above the image so a dark cover keeps its outline */
+  .cover::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 1px var(--cover-edge);
+    background: linear-gradient(
+      90deg,
+      var(--cover-crease-dark) 0,
+      transparent 2.2%,
+      var(--cover-crease-light) 3.4%,
+      transparent 5.5%
+    );
+  }
+  .cover[data-variant='list']::after {
+    background: none;
+  }
+  /* placeholder slot on an empty shelf */
+  .cover[data-empty='true'] {
+    background: transparent;
+    box-shadow: none;
+    border: 1px dashed var(--border-strong);
+  }
+  .cover[data-empty='true']::after {
+    display: none;
+  }
+  .cover[data-variant='drawer'] {
+    border-radius: 4px;
+    box-shadow: var(--cover-shadow-lift);
+  }
+  /* Paper sheen highlight passing softly over covers on hover */
+  .cover::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    pointer-events: none;
+    background: linear-gradient(
+      115deg,
+      transparent 28%,
+      rgba(255, 250, 240, 0.14) 50%,
+      transparent 72%
+    );
+    transform: translateX(-115%);
+    opacity: 0;
+    transition: transform 0.65s var(--ease-glide), opacity 0.25s ease;
+  }
+  .cover[data-variant='list']::before,
+  .cover[data-empty='true']::before {
+    display: none;
+  }
+  .cover-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0;
+    transition: opacity 0.35s ease-out;
+  }
+  .cover-img[data-loaded='true'] {
+    opacity: 1;
+  }
+  @media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+    .book-tile:hover .cover,
+    .shelf-book:hover .cover {
+      transform: translateY(-5px) scale(1.012);
+      box-shadow: var(--cover-shadow-lift);
+    }
+    .book-tile:hover .cover::before,
+    .shelf-book:hover .cover::before {
+      opacity: 1;
+      transform: translateX(115%);
+    }
+    .book-tile:active .cover,
+    .shelf-book:active .cover {
+      transform: translateY(-1px) scale(0.982);
+      transition-duration: 0.12s;
+    }
+  }
+
+  /* ---- generated (typographic) cover ---- */
+  .gcover {
+    --gc-line: color-mix(in oklab, var(--gc-hue) 38%, transparent);
+    --gc-rule: color-mix(in oklab, var(--gc-hue) 46%, transparent);
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    font-family: var(--font-serif);
+    color: var(--text-primary);
+    background-color: color-mix(in oklab, var(--gc-hue) var(--gc-mix), var(--bg-card));
+  }
+  .gcover-motif {
+    position: relative;
+    flex: 0 0 27%;
+    border-bottom: 1px solid var(--gc-rule);
+    background-color: color-mix(in oklab, var(--gc-hue) 10%, transparent);
+  }
+  .gcover-motif::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    -webkit-mask-image: linear-gradient(to bottom, rgb(22 24 28 / 0.95), rgb(22 24 28 / 0.3));
+    mask-image: linear-gradient(to bottom, rgb(22 24 28 / 0.95), rgb(22 24 28 / 0.3));
+  }
+  .gcover[data-motif='lines'] .gcover-motif::before {
+    background: repeating-linear-gradient(to bottom, var(--gc-line) 0 1px, transparent 1px 2.6cqw);
+  }
+  .gcover[data-motif='grid'] .gcover-motif::before {
+    background:
+      linear-gradient(var(--gc-line) 1px, transparent 1px) 0 0 / 6cqw 6cqw,
+      linear-gradient(90deg, var(--gc-line) 1px, transparent 1px) 0 0 / 6cqw 6cqw;
+  }
+  .gcover[data-motif='hatch'] .gcover-motif::before {
+    background: repeating-linear-gradient(135deg, var(--gc-line) 0 1px, transparent 1px 3cqw);
+  }
+  .gcover[data-motif='arcs'] .gcover-motif::before {
+    background: repeating-radial-gradient(circle at 0% 100%, var(--gc-line) 0 1px, transparent 1px 4.4cqw);
+  }
+  .gcover-body {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    flex-direction: column;
+    gap: 3.2cqw;
+    overflow: hidden;
+    padding: 6.5cqw 8cqw 0 10cqw;
+  }
+  .gcover-title,
+  .gcover-sub,
+  .gcover-author {
+    margin: 0;
+    overflow: hidden;
+    overflow-wrap: break-word;
+    hyphens: auto;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+  }
+  .gcover-title {
+    font-size: 15px;
+    font-size: max(13px, 9cqw);
+    font-weight: 600;
+    line-height: 1.13;
+    letter-spacing: -0.005em;
+    text-wrap: balance;
+    -webkit-line-clamp: 5;
+    line-clamp: 5;
+  }
+  .gcover-sub {
+    font-size: max(11px, 5.2cqw);
+    font-style: italic;
+    line-height: 1.25;
+    color: var(--text-secondary);
+    text-wrap: balance;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+  .gcover-author {
+    font-size: max(11px, 5.4cqw);
+    line-height: 1.25;
+    color: var(--text-secondary);
+    text-wrap: pretty;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+  .gcover-foot {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 2cqw;
+    margin: 0 8cqw 0 10cqw;
+    padding: 3cqw 0 6cqw;
+    border-top: 1px solid var(--gc-rule);
+    font-family: var(--font-sans);
+  }
+  .gcover-source {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: max(9.5px, 4.3cqw);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--gc-ink);
+  }
+  .gcover-year {
+    flex: none;
+    font-family: var(--font-mono);
+    font-size: max(9.5px, 4.3cqw);
+    color: var(--text-secondary);
+  }
+  /* Narrow frames (list thumbnail, phones): fewer lines so nothing is clipped mid-line */
+  @container (max-width: 190px) {
+    .gcover-title {
+      -webkit-line-clamp: 4;
+      line-clamp: 4;
+    }
+    .gcover-sub {
+      display: none;
+    }
+    .gcover-author {
+      -webkit-line-clamp: 1;
+      line-clamp: 1;
+    }
+  }
+  @container (max-width: 100px) {
+    .gcover-body {
+      padding: 7cqw 7cqw 0 9cqw;
+    }
+    .gcover-title {
+      font-size: 14cqw;
+      -webkit-line-clamp: 4;
+      line-clamp: 4;
+    }
+    .gcover-author,
+    .gcover-source {
+      display: none;
+    }
+    .gcover-foot {
+      justify-content: flex-end;
+      padding-bottom: 5cqw;
+    }
+    .gcover-year {
+      font-size: 9px;
+    }
+  }
+
+  /* ---- catalogue tile (grid) ---- */
+  .book-tile {
+    position: relative;
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 0.625rem;
+    padding: 0.375rem 0.25rem 0.5rem;
     border-radius: var(--radius);
     content-visibility: auto;
-    transition: box-shadow 0.25s var(--ease-glide), border-color 0.25s;
+    contain-intrinsic-size: auto 340px;
+    animation: tile-enter 0.38s var(--ease-glide) backwards;
+    animation-delay: calc(min(var(--stagger-i, 0), 8) * 24ms);
   }
-  .book-card[data-view='grid'] {
-    contain-intrinsic-size: auto 430px;
-  }
-  .book-card[data-view='list'] {
-    contain-intrinsic-size: auto 92px;
-  }
-  .book-card:hover {
-    border-color: var(--border-strong);
-    box-shadow: var(--shadow-card);
-  }
-  .book-card:has(.card-link:focus-visible) {
+  .book-tile:has(.card-link:focus-visible),
+  .book-row:has(.card-link:focus-visible) {
     outline: 2px solid var(--accent-upn);
-    outline-offset: 2px;
+    outline-offset: 1px;
   }
+  .cover-slot {
+    position: relative;
+  }
+  .tile-title {
+    margin: 0;
+    font-family: var(--font-serif);
+    font-size: 0.9375rem;
+    font-weight: 600;
+    line-height: 1.25;
+  }
+  /* The clamp lives on the button itself: a button is an atomic inline box, so clamping its parent would not count its lines. */
+  .tile-title > .card-link {
+    display: -webkit-box;
+    width: 100%;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+    text-wrap: balance;
+  }
+  .book-tile:hover .tile-title .card-link,
+  .book-row:hover .tile-title .card-link {
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+  .tile-meta {
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.75rem;
+    line-height: 1.35;
+    color: var(--text-muted);
+  }
+  .tile-author {
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.8125rem;
+    line-height: 1.35;
+    color: var(--text-secondary);
+  }
+  .tile-text {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    margin: 0;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.35;
+    color: var(--accent-jade);
+  }
+  .tile-text[data-state='none'] {
+    font-weight: 500;
+    color: var(--text-muted);
+  }
+  .tile-text[data-state='resume'] {
+    color: var(--accent-primary);
+  }
+
+  /* ---- catalogue row (list) ---- */
+  .book-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.875rem;
+    padding: 0.625rem 0.25rem;
+    border-bottom: 1px solid var(--border-hairline);
+    border-radius: var(--radius);
+    content-visibility: auto;
+    contain-intrinsic-size: auto 100px;
+    transition: background-color 0.2s var(--ease-glide), transform 0.2s var(--ease-glide);
+    animation: tile-enter 0.32s var(--ease-glide) backwards;
+    animation-delay: calc(min(var(--stagger-i, 0), 8) * 22ms);
+  }
+  .book-row:hover {
+    background-color: color-mix(in oklab, var(--bg-hover) 55%, transparent);
+    transform: translateX(3px);
+  }
+
   /* Stretched link: the whole card opens the preview */
   .card-link {
     text-align: left;
     background: none;
     border: 0;
     padding: 0;
+    font: inherit;
+    color: inherit;
   }
   .card-link:focus-visible {
     outline: none;
@@ -482,10 +858,63 @@
     z-index: 2;
   }
 
+  /* Bookmark: small paper chip on the cover corner, 44 px hit area */
+  .cover-bookmark {
+    position: absolute;
+    /* tile padding (0.375 / 0.25 rem) + 0.375 rem inset on the cover */
+    top: 0.75rem;
+    right: 0.625rem;
+    z-index: 3;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-hairline);
+    background-color: var(--bg-elevated);
+    background-color: color-mix(in oklab, var(--bg-elevated) 92%, transparent);
+    color: var(--text-secondary);
+    backdrop-filter: blur(4px);
+    transition: opacity 0.15s, background-color 0.15s, color 0.15s;
+  }
+  .cover-bookmark::after {
+    content: '';
+    position: absolute;
+    inset: -0.375rem;
+  }
+  .cover-bookmark:hover {
+    background-color: var(--bg-elevated);
+    color: var(--text-primary);
+  }
+  .cover-bookmark[aria-pressed='true'] {
+    color: var(--accent-primary);
+    border-color: color-mix(in oklab, var(--accent-primary) 45%, transparent);
+  }
+  /* Pointer devices: unsaved bookmarks appear on hover / keyboard focus; touch always shows them */
+  @media (hover: hover) and (pointer: fine) {
+    .book-tile .cover-bookmark[aria-pressed='false'] {
+      opacity: 0;
+    }
+    .book-tile:hover .cover-bookmark,
+    .book-tile:focus-within .cover-bookmark {
+      opacity: 1;
+    }
+  }
+
+  .cover-progress {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 3;
+    border-radius: 0 0 3px 3px;
+  }
   .progress-track {
     height: 3px;
     width: 100%;
-    background-color: color-mix(in oklab, var(--text-primary) 14%, transparent);
+    background-color: color-mix(in oklab, var(--text-primary) 22%, transparent);
     overflow: hidden;
   }
   .progress-fill {
@@ -493,10 +922,125 @@
     background-color: var(--accent-primary);
   }
 
+  /* ---- shelf of covers ("Recién llegados") ---- */
+  .shelf-scroll {
+    --shelf-gutter: 1rem;
+    margin-inline: calc(var(--shelf-gutter) * -1);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    scroll-padding-inline: var(--shelf-gutter);
+    scrollbar-width: none;
+    padding-top: 0.5rem;
+  }
+  .shelf-scroll::-webkit-scrollbar {
+    display: none;
+  }
+  @media (min-width: 640px) {
+    .shelf-scroll {
+      --shelf-gutter: 0px;
+    }
+  }
+  .shelf-books {
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    gap: 0.875rem;
+    width: max-content;
+    min-width: 100%;
+    margin: 0;
+    padding: 0.25rem var(--shelf-gutter) 0.75rem;
+    list-style: none;
+  }
+  /* the plank the books stand on */
+  .shelf-books::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 0.75rem;
+    background: linear-gradient(to bottom, var(--shelf-top) 0 38%, var(--shelf-front) 38% 100%);
+    border-top: 1px solid var(--border-hairline);
+    box-shadow: 0 3px 5px -2px var(--shelf-shade);
+  }
+  .shelf-books > li {
+    position: relative;
+    z-index: 1;
+    flex: none;
+    width: 4.75rem;
+    scroll-snap-align: start;
+    animation: shelf-book-in 0.45s var(--ease-glide) backwards;
+    animation-delay: calc(min(var(--stagger-i, 0), 10) * 32ms);
+  }
+  @media (min-width: 640px) {
+    .shelf-books > li {
+      width: 6.75rem;
+    }
+  }
+  @media (min-width: 1280px) {
+    .shelf-books > li {
+      width: 7.5rem;
+    }
+  }
+  .shelf-book {
+    display: block;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: none;
+    border-radius: 3px;
+  }
+
+  /* ---- loading skeletons (same geometry as the real tiles) ---- */
   .skeleton {
+    position: relative;
+    overflow: hidden;
     background-color: var(--bg-surface);
+    background-image: linear-gradient(
+      105deg,
+      transparent 20%,
+      color-mix(in oklab, var(--bg-elevated) 65%, transparent) 50%,
+      transparent 80%
+    );
+    background-size: 220% 100%;
     border-radius: var(--radius-sm);
-    animation: skeleton-pulse 1.6s ease-in-out infinite;
+    animation: skeleton-shimmer 1.6s var(--ease-glide) infinite;
+  }
+  /* Blank paper: faint fibres + grain, then the usual cover edge and crease on top */
+  .skeleton-cover {
+    position: relative;
+    overflow: hidden;
+    background-color: var(--bg-surface);
+    background-image:
+      linear-gradient(
+        105deg,
+        transparent 20%,
+        color-mix(in oklab, var(--bg-elevated) 55%, transparent) 50%,
+        transparent 80%
+      ),
+      repeating-linear-gradient(
+        0deg,
+        color-mix(in oklab, var(--text-primary) 2.5%, transparent) 0 1px,
+        transparent 1px 4px
+      ),
+      radial-gradient(circle at 30% 20%, color-mix(in oklab, var(--text-primary) 5%, transparent) 0.5px, transparent 1px);
+    background-size: 220% 100%, auto, 7px 7px;
+    animation: skeleton-shimmer 1.6s var(--ease-glide) infinite;
+  }
+
+  .continue-card {
+    transition:
+      transform 0.25s var(--ease-glide),
+      box-shadow 0.25s var(--ease-glide),
+      border-color 0.2s var(--ease-glide);
+    animation: tile-enter 0.36s var(--ease-glide) backwards;
+    animation-delay: calc(min(var(--stagger-i, 0), 6) * 35ms);
+  }
+  .continue-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-card);
+    border-color: var(--border-strong);
   }
 
   .toast {
@@ -515,6 +1059,7 @@
     background-color: var(--bg-elevated);
     box-shadow: var(--shadow-pop);
     font-size: 0.875rem;
+    animation: toast-in 0.3s var(--ease-spring);
   }
 
   .callout {
@@ -541,31 +1086,213 @@
   }
 }
 
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+}
 @keyframes modal-in {
   from {
     opacity: 0;
-    transform: translateY(8px) scale(0.985);
+    transform: translateY(10px) scale(0.985);
   }
 }
 @keyframes modal-in-right {
   from {
-    opacity: 0.4;
-    transform: translateX(24px);
+    opacity: 0.35;
+    transform: translateX(28px);
   }
 }
 @keyframes modal-in-left {
   from {
-    opacity: 0.4;
-    transform: translateX(-24px);
+    opacity: 0.35;
+    transform: translateX(-28px);
   }
 }
-@keyframes skeleton-pulse {
-  50% {
-    opacity: 0.55;
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 14px) scale(0.96);
+  }
+}
+@keyframes tile-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+}
+@keyframes shelf-book-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+@keyframes bookmark-pop {
+  0% {
+    transform: scale(0.75);
+  }
+  55% {
+    transform: scale(1.26) rotate(-6deg);
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+  }
+}
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -120% 0;
   }
 }
 
-/* Reactive icon animation (logo etc.): paused by default, active on hover/focus */
+.cover-bookmark[aria-pressed='true'] svg {
+  animation: bookmark-pop 0.36s var(--ease-spring);
+}
+
+/* Hummingbird & open-book emblem animations: soft initial bloom + hover/focus flight */
+@keyframes logo-unfurl {
+  from {
+    opacity: 0;
+    transform: translateY(3px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes wing-beat-l {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  45% {
+    transform: rotate(-10deg) translateY(-4px);
+  }
+}
+@keyframes wing-beat-r {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  45% {
+    transform: rotate(10deg) translateY(-4px);
+  }
+}
+@keyframes feather-lag {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(-4deg);
+  }
+}
+@keyframes head-bob {
+  0%, 100% {
+    transform: rotate(0deg) translateY(0px);
+  }
+  50% {
+    transform: rotate(2.5deg) translateY(-3px);
+  }
+}
+@keyframes tail-balance {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(-2.5deg) translateY(3px);
+  }
+}
+@keyframes pages-breathe {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+.coleebri-mark {
+  animation: logo-unfurl 0.55s var(--ease-glide) both;
+}
+.coleebri-wing-l {
+  transform-origin: 372px 350px;
+  animation: wing-beat-l 0.65s var(--ease-glide) infinite paused;
+}
+.coleebri-wing-r {
+  transform-origin: 652px 350px;
+  animation: wing-beat-r 0.65s var(--ease-glide) infinite paused;
+}
+.coleebri-feather {
+  transform-origin: 512px 380px;
+  animation: feather-lag 0.65s var(--ease-glide) infinite paused;
+}
+.coleebri-feather-2 {
+  animation-delay: 55ms;
+}
+.coleebri-feather-3 {
+  animation-delay: 110ms;
+}
+.coleebri-head {
+  transform-origin: 512px 380px;
+  animation: head-bob 1.3s var(--ease-glide) infinite paused;
+}
+.coleebri-tail {
+  transform-origin: 512px 510px;
+  animation: tail-balance 0.65s var(--ease-glide) infinite paused;
+}
+.coleebri-page-l,
+.coleebri-page-r {
+  transform-origin: 512px 500px;
+  animation: pages-breathe 1.3s var(--ease-glide) infinite paused;
+}
+.coleebri-page-r {
+  animation-delay: 90ms;
+}
+
+.coleebri-brand:hover .coleebri-wing-l,
+.coleebri-brand:hover .coleebri-wing-r,
+.coleebri-brand:hover .coleebri-feather,
+.coleebri-brand:hover .coleebri-head,
+.coleebri-brand:hover .coleebri-tail,
+.coleebri-brand:hover .coleebri-page-l,
+.coleebri-brand:hover .coleebri-page-r,
+.coleebri-brand:focus-within .coleebri-wing-l,
+.coleebri-brand:focus-within .coleebri-wing-r,
+.coleebri-brand:focus-within .coleebri-feather,
+.coleebri-brand:focus-within .coleebri-head,
+.coleebri-brand:focus-within .coleebri-tail,
+.coleebri-brand:focus-within .coleebri-page-l,
+.coleebri-brand:focus-within .coleebri-page-r,
+.coleebri-mark:hover .coleebri-wing-l,
+.coleebri-mark:hover .coleebri-wing-r,
+.coleebri-mark:hover .coleebri-feather,
+.coleebri-mark:hover .coleebri-head,
+.coleebri-mark:hover .coleebri-tail,
+.coleebri-mark:hover .coleebri-page-l,
+.coleebri-mark:hover .coleebri-page-r {
+  animation-play-state: running;
+}
+
+/* Header & control SVG micro-animations */
+.anim-icon-theme,
+.anim-icon-bookmark,
+.anim-icon-search {
+  transition: transform 0.35s var(--ease-spring);
+}
+button:hover .anim-icon-theme,
+button:focus-visible .anim-icon-theme {
+  transform: rotate(22deg) scale(1.1);
+}
+button:hover .anim-icon-bookmark,
+button:focus-visible .anim-icon-bookmark {
+  transform: translateY(-1.5px) scale(1.08);
+}
+button:hover .anim-icon-search,
+button:focus-visible .anim-icon-search {
+  transform: scale(1.1) rotate(-8deg);
+}
+
+/* Reactive icon animation: paused by default, active on hover/focus */
 @keyframes subtle-spin {
   from {
     transform: rotate(0deg);

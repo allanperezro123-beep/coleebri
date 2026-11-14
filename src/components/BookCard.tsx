@@ -1,28 +1,32 @@
-import { memo } from 'react';
-import { Bookmark, BookOpen, Eye } from 'lucide-react';
+import { memo, type CSSProperties } from 'react';
+import { Bookmark, BookOpen } from 'lucide-react';
 import type { ReadingProgress } from '../lib/readingProgress';
-import {
-  DOCTYPE_LABELS,
-  LANGUAGE_LABELS,
-  areaFillColor,
-  areaTextColor,
-  formatAuthors,
-  getArea,
-  langAttr
-} from '../lib/publication';
+import { DOCTYPE_LABELS, LANGUAGE_LABELS, formatAuthors, langAttr } from '../lib/publication';
+import { sourceInfo } from '../lib/sources';
 import type { Publication } from '../types/publication';
-import { PdfCoverThumbnail } from './PdfCoverThumbnail';
+import { BookCover } from './BookCover';
 
 interface BookCardProps {
   publication: Publication;
   viewMode: 'grid' | 'list';
-  enableLivePdfRender: boolean;
   isSaved: boolean;
   progress?: ReadingProgress;
+  /** First row(s) of the page: the cover is loaded eagerly. */
+  priority?: boolean;
+  /** Row/tile index used to stagger CSS entrance motion. */
+  staggerIndex?: number;
   onSelect: (pub: Publication) => void;
-  onReadPdf: (pub: Publication) => void;
   onQuickSave: (pub: Publication) => void;
 }
+
+/**
+ * `sizes` for the 320/640 WebP renditions. Each term is the real cover width at that breakpoint
+ * (page gutter, 0.5 rem column gap and the tile's own 0.25 rem padding included), so a 2x phone
+ * gets the 320 file and anything denser gets the 640 one. Keep in sync with GRID_CLASS.
+ */
+export const GRID_COVER_SIZES =
+  '(min-width: 1536px) 14rem, (min-width: 1280px) calc(20vw - 1.5rem), (min-width: 1024px) calc(25vw - 1.6rem), (min-width: 640px) calc(33.3vw - 1.9rem), calc(50vw - 1.75rem)';
+const LIST_COVER_SIZES = '56px';
 
 export function progressPercent(progress: ReadingProgress | undefined, pageCount?: number): number | null {
   if (!progress) return null;
@@ -31,7 +35,7 @@ export function progressPercent(progress: ReadingProgress | undefined, pageCount
   return Math.min(100, Math.max(1, Math.round((progress.page / total) * 100)));
 }
 
-function ProgressBar({ percent, className = '' }: { percent: number; className?: string }) {
+export function ProgressBar({ percent, className = '' }: { percent: number; className?: string }) {
   return (
     <div
       className={`progress-track ${className}`}
@@ -49,148 +53,101 @@ function ProgressBar({ percent, className = '' }: { percent: number; className?:
 export const BookCard = memo(function BookCard({
   publication,
   viewMode,
-  enableLivePdfRender,
   isSaved,
   progress,
+  priority = false,
+  staggerIndex = 0,
   onSelect,
-  onReadPdf,
   onQuickSave
 }: BookCardProps) {
-  const area = getArea(publication.oecdArea);
+  const staggerStyle = { '--stagger-i': staggerIndex } as CSSProperties;
   const hasText = Boolean(publication.pdfUrl);
   const resuming = hasText && progress !== undefined && progress.page > 1;
-  const percent = progressPercent(progress, publication.pageCount);
+  const percent = resuming ? progressPercent(progress, publication.pageCount) : null;
+  const source = sourceInfo(publication.collectionCode, publication.collection);
+  const isList = viewMode === 'list';
 
+  // año · idioma (the type is only worth a word when it is not a book)
   const meta = [
-    publication.country,
-    LANGUAGE_LABELS[publication.language],
-    publication.year ? String(publication.year) : null
+    publication.docType !== 'book' ? DOCTYPE_LABELS[publication.docType] : null,
+    publication.year ? String(publication.year) : null,
+    LANGUAGE_LABELS[publication.language]
   ]
     .filter(Boolean)
     .join(' · ');
 
-  // At most one badge: a missing full text matters most, otherwise the type when it is not a book.
-  const badge = !hasText ? 'Sin texto completo' : publication.docType !== 'book' ? DOCTYPE_LABELS[publication.docType] : null;
-
-  const saveLabel = `${isSaved ? 'Quitar de estantería' : 'Guardar en estantería'}: ${publication.title}`;
-  const primaryLabel = hasText ? (resuming ? 'Continuar' : 'Leer') : 'Ver ficha';
+  const textState = resuming ? 'resume' : hasText ? 'full' : 'none';
+  const textLabel = resuming ? `Continuar · pág. ${progress.page}` : hasText ? 'Texto completo' : 'Solo ficha';
 
   const title = (
-    <button
-      type="button"
-      className="card-link font-editorial text-[15px] font-semibold leading-snug group-hover:underline"
-      lang={langAttr(publication)}
-      onClick={() => onSelect(publication)}
-    >
+    <button type="button" className="card-link" lang={langAttr(publication)} onClick={() => onSelect(publication)}>
       {publication.title}
     </button>
   );
 
-  const primary = (
-    <button
-      type="button"
-      className="btn btn-primary btn-sm card-action"
-      onClick={() => (hasText ? onReadPdf(publication) : onSelect(publication))}
-      aria-label={`${primaryLabel}: ${publication.title}`}
-    >
-      {hasText ? <BookOpen className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
-      <span>{primaryLabel}</span>
-    </button>
+  const bookmarkProps = {
+    type: 'button' as const,
+    onClick: () => onQuickSave(publication),
+    'aria-pressed': isSaved,
+    'aria-label': `Guardar en estantería: ${publication.title}`,
+    title: isSaved ? 'Quitar de la estantería' : 'Guardar en estantería'
+  };
+  const bookmarkIcon = (
+    <Bookmark className="h-4 w-4" fill={isSaved ? 'currentColor' : 'none'} aria-hidden="true" />
   );
 
-  const bookmark = (
-    <button
-      type="button"
-      className="btn btn-quiet btn-icon btn-sm card-action"
-      onClick={() => onQuickSave(publication)}
-      aria-label={saveLabel}
-      title={isSaved ? 'Quitar de estantería' : 'Guardar en estantería'}
-    >
-      <Bookmark
-        className="h-4 w-4"
-        fill={isSaved ? 'currentColor' : 'none'}
-        style={{ color: isSaved ? 'var(--accent-primary)' : undefined }}
-        aria-hidden="true"
-      />
-    </button>
+  const textIndicator = (
+    <p className="tile-text" data-state={textState}>
+      {hasText ? <BookOpen className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> : null}
+      <span>{textLabel}</span>
+    </p>
   );
 
-  if (viewMode === 'list') {
+  if (isList) {
     return (
-      <article className="book-card group flex items-center gap-3 overflow-hidden p-3 sm:p-3.5" data-view="list">
-        <span
-          className="h-12 w-1 shrink-0 self-center rounded-sm"
-          style={{ backgroundColor: areaFillColor(area.id) }}
-          aria-hidden="true"
-        />
+      <article className="book-row group" data-view="list" style={staggerStyle}>
+        <div className="cover-slot w-14 shrink-0">
+          <BookCover publication={publication} variant="list" sizes={LIST_COVER_SIZES} priority={priority} />
+          {percent !== null ? <ProgressBar percent={percent} className="cover-progress" /> : null}
+        </div>
         <div className="min-w-0 flex-1">
-          <h3 className="line-clamp-2 sm:line-clamp-1">{title}</h3>
-          <p className="mt-0.5 line-clamp-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
-            {formatAuthors(publication)}
+          <h3 className="tile-title">{title}</h3>
+          <p className="tile-author mt-0.5">{formatAuthors(publication)}</p>
+          <p className="tile-meta mt-0.5">
+            {source.short} · {meta}
           </p>
-          <p className="mt-0.5 line-clamp-1 text-xs" style={{ color: 'var(--text-muted)' }}>
-            {meta}
-            {badge ? <span className="font-semibold"> · {badge}</span> : null}
-            {progress && progress.page > 1 && percent === null ? ` · pág. ${progress.page}` : ''}
-          </p>
+          <div className="mt-1">{textIndicator}</div>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          {primary}
-          {bookmark}
-        </div>
-        {percent !== null && progress && progress.page > 1 ? (
-          <ProgressBar percent={percent} className="absolute inset-x-0 bottom-0" />
-        ) : null}
+        <button {...bookmarkProps} className="btn btn-ghost btn-icon card-action shrink-0">
+          <Bookmark
+            className="h-5 w-5"
+            fill={isSaved ? 'currentColor' : 'none'}
+            style={{ color: isSaved ? 'var(--accent-primary)' : undefined }}
+            aria-hidden="true"
+          />
+        </button>
       </article>
     );
   }
 
   return (
-    <article className="book-card group flex flex-col overflow-hidden" data-view="grid">
-      <div className="p-3 pb-0">
-        <div className="relative">
-          <PdfCoverThumbnail
-            publication={publication}
-            enableLivePdfRender={enableLivePdfRender}
-            className="aspect-[3/4] w-full rounded-[3px]"
-          />
-          {badge ? (
-            <span
-              className="pointer-events-none absolute left-2 top-2 rounded border px-1.5 py-0.5 text-xs font-semibold"
-              style={{
-                backgroundColor: 'var(--bg-elevated)',
-                borderColor: 'var(--border-strong)',
-                color: 'var(--text-primary)'
-              }}
-            >
-              {badge}
-            </span>
-          ) : null}
-          {percent !== null && progress && progress.page > 1 ? (
-            <ProgressBar percent={percent} className="absolute inset-x-0 bottom-0" />
-          ) : null}
-        </div>
+    <article className="book-tile group" data-view="grid" style={staggerStyle}>
+      <div className="cover-slot">
+        <BookCover publication={publication} variant="grid" sizes={GRID_COVER_SIZES} priority={priority} />
+        {percent !== null ? <ProgressBar percent={percent} className="cover-progress" /> : null}
       </div>
 
-      <div className="flex flex-1 flex-col p-3.5 pt-3">
-        <p className="micro truncate" style={{ color: areaTextColor(area.id) }}>
-          {area.label}
-        </p>
-        <h3 className="mt-1 line-clamp-3">{title}</h3>
-        <p className="mt-1 line-clamp-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
-          {formatAuthors(publication)}
-        </p>
-        <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>
-          {meta}
-          {progress && progress.page > 1 && percent === null ? ` · pág. ${progress.page}` : ''}
-        </p>
-
-        <div className="min-h-3 flex-1" aria-hidden="true" />
-        <div className="flex items-center gap-2 border-t pt-3" style={{ borderColor: 'var(--border-hairline)' }}>
-          <div className="flex-1 [&>button]:w-full">{primary}</div>
-          {bookmark}
-        </div>
+      <div className="min-w-0">
+        <h3 className="tile-title">{title}</h3>
+        <p className="tile-author mt-1">{formatAuthors(publication)}</p>
+        <p className="tile-meta mt-0.5">{meta}</p>
+        <div className="mt-1.5">{textIndicator}</div>
       </div>
+
+      {/* After the text in DOM order (title first for keyboard and screen readers), pinned to the cover corner by CSS */}
+      <button {...bookmarkProps} className="cover-bookmark card-action">
+        {bookmarkIcon}
+      </button>
     </article>
   );
 });
