@@ -1,6 +1,6 @@
 {
   "name": "coleebri",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "private": true,
   "type": "module",
   "description": "Coleebri — Biblioteca académica abierta conectada con SciELO, OpenAlex y Cloudflare Pages + D1, con identidad visual inspirada en el colibrí de la Universidad Pedagógica Nacional de Colombia.",
@@ -27,7 +27,14 @@
     "predev": "node scripts/copy-pdfjs-assets.mjs",
     "prebuild": "node scripts/copy-pdfjs-assets.mjs",
     "db:reindex:local": "tsx scripts/reindex-publications.ts --local",
-    "db:reindex:remote": "tsx scripts/reindex-publications.ts --remote"
+    "db:reindex:remote": "tsx scripts/reindex-publications.ts --remote",
+    "db:migrate:006:local": "wrangler d1 execute coleebri-db --local --file=migrations/0006_fts.sql",
+    "db:migrate:006:remote": "wrangler d1 execute coleebri-db --remote --file=migrations/0006_fts.sql",
+    "db:backup:local": "tsx scripts/backup-db.ts --local",
+    "db:backup:remote": "tsx scripts/backup-db.ts --remote",
+    "covers": "tsx scripts/build-covers.ts",
+    "predeploy": "tsx scripts/build-covers.ts",
+    "harvest:extra": "tsx scripts/harvest/extra.ts"
   },
   "dependencies": {
     "fast-xml-parser": "^5.12.1",

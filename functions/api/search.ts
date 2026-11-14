@@ -1,9 +1,12 @@
 import { rowToPublication, type Env, type PublicationRow } from '../types';
 import { INSERT_NEW_PUBLICATION_SQL, bindPublication, sanitizePublication } from '../publications';
+import { cacheKeyFor } from '../cache';
 import {
   MAX_QUERY_LENGTH,
   SEARCH_WORD_CLAUSE,
   clampInt,
+  ftsMatchQuery,
+  isMissingFtsError,
   cleanText,
   fetchWithTimeout,
   json,
@@ -228,6 +231,16 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     return json({ query: q, page, count: 0, items: [] });
   }
 
+  // Identical searches within 10 min are served from the edge (fewer D1 reads, fewer
+  // OpenAlex/Crossref calls, no repeated write-backs).
+  const cacheKey = cacheKeyFor(request, 'search-v1');
+  try {
+    const hit = await (await caches.open('coleebri-api-v1')).match(cacheKey);
+    if (hit) return json(await hit.json(), 200, { 'Cache-Control': 'public, max-age=120', 'X-Edge-Cache': 'HIT' });
+  } catch {
+    // cache unavailable — continue
+  }
+
   const results: Publication[] = [];
   const seenKeys = new Set<string>();
   const remember = (pub: Publication) => {
@@ -241,16 +254,31 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   // 1. Local D1 catalogue first (literal match, wildcards escaped, bounded pattern length)
   if (env.DB) {
     try {
-      const words = searchWords(q);
-      if (words.length > 0) {
-        const d1Rows = await env.DB.prepare(
-          `SELECT * FROM publications WHERE ${words.map(() => SEARCH_WORD_CLAUSE).join(' AND ')}
-           ORDER BY (pdf_url IS NOT NULL AND pdf_url != '') DESC, cited_by_count DESC, publication_year DESC LIMIT 20`
-        )
-          .bind(...words.flatMap(searchWordParams))
-          .all<PublicationRow>();
-        for (const row of d1Rows.results || []) remember(rowToPublication(row));
+      const order = "ORDER BY (pdf_url IS NOT NULL AND pdf_url != '') DESC, cited_by_count DESC, publication_year DESC LIMIT 20";
+      const match = ftsMatchQuery(q);
+      let rows: PublicationRow[] = [];
+      try {
+        if (match) {
+          rows = (
+            await env.DB.prepare(
+              `SELECT * FROM publications WHERE rowid IN (SELECT rowid FROM publications_fts WHERE publications_fts MATCH ?) ${order}`
+            )
+              .bind(match)
+              .all<PublicationRow>()
+          ).results || [];
+        }
+      } catch (err) {
+        if (!isMissingFtsError(err)) throw err;
+        const words = searchWords(q);
+        if (words.length > 0) {
+          rows = (
+            await env.DB.prepare(`SELECT * FROM publications WHERE ${words.map(() => SEARCH_WORD_CLAUSE).join(' AND ')} ${order}`)
+              .bind(...words.flatMap(searchWordParams))
+              .all<PublicationRow>()
+          ).results || [];
+        }
       }
+      for (const row of rows) remember(rowToPublication(row));
     } catch (err) {
       console.error('[search] d1 lookup failed', err instanceof Error ? err.message : err);
     }
@@ -354,9 +382,19 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     );
   }
 
-  return json(
-    { query: q, page, count: results.length, items: results, sources: { d1: Boolean(env.DB), openAlex: true } },
-    200,
-    { 'Cache-Control': 'public, max-age=120' }
+  const body = { query: q, page, count: results.length, items: results, sources: { d1: Boolean(env.DB), openAlex: true } };
+  context.waitUntil(
+    caches
+      .open('coleebri-api-v1')
+      .then((cache) =>
+        cache.put(
+          cacheKey,
+          new Response(JSON.stringify(body), {
+            headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=600' }
+          })
+        )
+      )
+      .catch(() => undefined)
   );
+  return json(body, 200, { 'Cache-Control': 'public, max-age=120' });
 };
