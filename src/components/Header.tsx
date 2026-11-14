@@ -1,32 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
-import {
-  Bookmark,
-  Database,
-  Globe2,
-  Loader2,
-  Moon,
-  RefreshCw,
-  Search,
-  SlidersHorizontal,
-  Sun,
-  X
-} from 'lucide-react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Bookmark, Moon, Search, Sun, X } from 'lucide-react';
 import type { AutocompleteSuggestion } from '../hooks/useCatalog';
 import { ColeebriLogo } from './ColeebriLogo';
 
 interface HeaderProps {
   query: string;
-  onQueryChange: (val: string) => void;
-  getSuggestions: (val: string) => AutocompleteSuggestion[];
-  onLiveSearch: (val: string) => void;
-  liveSearching: boolean;
-  liveCountAdded: number;
-  totalCatalog: number;
-  backendSource: 'd1' | 'seed';
+  onQueryChange: (value: string) => void;
+  getSuggestions: (value: string) => AutocompleteSuggestion[];
   savedCount: number;
   onOpenShelves: () => void;
-  onOpenSyncModal: () => void;
-  onToggleMobileFilters: () => void;
   darkMode: boolean;
   onToggleDarkMode: () => void;
 }
@@ -35,260 +17,229 @@ export function Header({
   query,
   onQueryChange,
   getSuggestions,
-  onLiveSearch,
-  liveSearching,
-  liveCountAdded,
-  totalCatalog,
-  backendSource,
   savedCount,
   onOpenShelves,
-  onOpenSyncModal,
-  onToggleMobileFilters,
   darkMode,
   onToggleDarkMode
 }: HeaderProps) {
-  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const inputId = useId();
+  const listboxId = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const searchToggleRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
-  const containerRef = useRef<HTMLDivElement>(null);
+  /** Phones only: the single-row header swaps the brand + actions for the search field. */
+  const [searchOpen, setSearchOpen] = useState(false);
+  const wasSearchOpen = useRef(false);
 
-  const suggestions = dropdownOpen ? getSuggestions(query) : [];
+  const suggestions = useMemo(() => (open ? getSuggestions(query) : []), [open, query, getSuggestions]);
+  const expanded = open && suggestions.length > 0;
+  const optionId = (index: number) => `${listboxId}-opt-${index}`;
 
   useEffect(() => {
-    const onOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onOutside);
-    return () => document.removeEventListener('mousedown', onOutside);
-  }, []);
+    if (searchOpen) inputRef.current?.focus();
+    else if (wasSearchOpen.current) searchToggleRef.current?.focus();
+    wasSearchOpen.current = searchOpen;
+  }, [searchOpen]);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setDropdownOpen(false);
-    if (query.trim().length >= 2) {
-      onLiveSearch(query);
+  const choose = (suggestion: AutocompleteSuggestion) => {
+    onQueryChange(suggestion.value);
+    setOpen(false);
+    setActiveIndex(-1);
+    inputRef.current?.focus();
+  };
+
+  const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    const count = suggestions.length;
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault();
+        if (!open) setOpen(true);
+        else if (count > 0) setActiveIndex((i) => (i + 1) % count);
+        break;
+      case 'ArrowUp':
+        event.preventDefault();
+        if (count > 0) setActiveIndex((i) => (i <= 0 ? count - 1 : i - 1));
+        break;
+      case 'Enter':
+        if (expanded && activeIndex >= 0 && suggestions[activeIndex]) {
+          event.preventDefault();
+          choose(suggestions[activeIndex]);
+        } else {
+          setOpen(false);
+        }
+        break;
+      case 'Escape':
+        if (expanded) {
+          event.preventDefault();
+          setOpen(false);
+          setActiveIndex(-1);
+        } else if (searchOpen) {
+          setSearchOpen(false);
+        }
+        break;
+      default:
+        break;
     }
   };
 
   return (
-    <header
-      className="sticky top-0 z-30 border-b backdrop-blur-md"
-      style={{
-        backgroundColor: darkMode ? 'rgba(16, 17, 15, 0.88)' : 'rgba(248, 247, 244, 0.88)',
-        borderColor: 'var(--border-hairline)'
-      }}
-    >
-      <div className="mx-auto max-w-[1440px] px-4 py-3 sm:px-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          {/* Editorial Brand */}
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={onToggleMobileFilters}
-              className="inline-flex h-9 w-9 items-center justify-center rounded border lg:hidden"
-              style={{ borderColor: 'var(--border-hairline)', backgroundColor: 'var(--bg-surface)' }}
-              aria-label="Abrir filtros"
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-            </button>
+    <header className="site-header sticky top-0 z-30">
+      <div className="mx-auto flex max-w-[1440px] items-center gap-2 px-4 py-2 sm:px-6 md:gap-4 md:py-3">
+        {/* Brand */}
+        <div className={`${searchOpen ? 'hidden md:flex' : 'flex'} shrink-0 items-center`}>
+          <ColeebriLogo size={36} showWordmark wordmarkClassName="hidden sm:flex" />
+        </div>
 
-            <div className="flex items-center gap-2.5">
-              <ColeebriLogo size={42} showWordmark />
-              <span
-                className="hidden items-center gap-1 rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider sm:inline-flex"
-                style={{
-                  backgroundColor: 'var(--accent-crimson-soft)',
-                  color: 'var(--accent-crimson)'
-                }}
-                title={`${totalCatalog} obras disponibles`}
-              >
-                <Database className="h-3 w-3" />
-                {backendSource === 'd1' ? `${totalCatalog} en Edge D1` : `${totalCatalog} obras`}
-              </span>
-            </div>
-          </div>
-
-          {/* Search & Autocomplete Bar */}
-          <div ref={containerRef} className="relative order-3 w-full lg:order-2 lg:max-w-xl lg:flex-1">
-            <form onSubmit={handleSubmit} className="relative flex items-center">
-              <Search
-                className="pointer-events-none absolute left-3 h-4 w-4"
-                style={{ color: 'var(--text-muted)' }}
-              />
-              <input
-                type="search"
-                value={query}
-                onFocus={() => setDropdownOpen(true)}
-                onChange={(e) => {
-                  onQueryChange(e.target.value);
-                  setDropdownOpen(true);
-                  setActiveIndex(-1);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'ArrowDown') {
-                    e.preventDefault();
-                    setActiveIndex((prev) => Math.min(prev + 1, suggestions.length - 1));
-                  } else if (e.key === 'ArrowUp') {
-                    e.preventDefault();
-                    setActiveIndex((prev) => Math.max(prev - 1, -1));
-                  } else if (e.key === 'Enter' && activeIndex >= 0 && suggestions[activeIndex]) {
-                    e.preventDefault();
-                    onQueryChange(suggestions[activeIndex].value);
-                    setDropdownOpen(false);
-                  } else if (e.key === 'Escape') {
-                    setDropdownOpen(false);
-                  }
-                }}
-                placeholder="Buscar título, autor, DOI (10.7476/...) o palabra clave..."
-                className="h-10 w-full rounded border pl-9 pr-36 text-sm outline-none transition-colors"
-                style={{
-                  backgroundColor: 'var(--bg-surface)',
-                  borderColor: 'var(--border-hairline)',
-                  color: 'var(--text-primary)'
-                }}
-              />
-              {query && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    onQueryChange('');
-                    setDropdownOpen(false);
-                  }}
-                  className="absolute right-[126px] rounded p-1 hover:opacity-80"
-                  style={{ color: 'var(--text-muted)' }}
-                  aria-label="Limpiar búsqueda"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
+        {/* Search combobox (always visible from md up; on phones it replaces the brand row) */}
+        <div
+          className={`${searchOpen ? 'flex' : 'hidden'} min-w-0 flex-1 items-center gap-2 md:mx-auto md:flex md:max-w-2xl`}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+              setOpen(false);
+              setActiveIndex(-1);
+            }
+          }}
+        >
+          <form
+            role="search"
+            className="relative min-w-0 flex-1"
+            onSubmit={(event) => {
+              event.preventDefault();
+              setOpen(false);
+              inputRef.current?.blur();
+              if (searchOpen) setSearchOpen(false);
+            }}
+          >
+            <label htmlFor={inputId} className="sr-only">
+              Buscar en el catálogo por título, autor, DOI o tema
+            </label>
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2"
+              style={{ color: 'var(--text-muted)' }}
+              aria-hidden="true"
+            />
+            <input
+              ref={inputRef}
+              id={inputId}
+              type="text"
+              role="combobox"
+              aria-expanded={expanded}
+              aria-controls={listboxId}
+              aria-autocomplete="list"
+              aria-activedescendant={expanded && activeIndex >= 0 ? optionId(activeIndex) : undefined}
+              autoComplete="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              enterKeyHint="search"
+              value={query}
+              onFocus={() => setOpen(true)}
+              onChange={(event) => {
+                onQueryChange(event.target.value);
+                setOpen(true);
+                setActiveIndex(-1);
+              }}
+              onKeyDown={onKeyDown}
+              placeholder="Buscar por título, autor, tema o DOI"
+              className="field pl-9 pr-11 md:min-h-11"
+            />
+            {query ? (
               <button
-                type="submit"
-                disabled={liveSearching || query.trim().length < 2}
-                className="absolute right-1.5 inline-flex h-7 items-center gap-1.5 rounded px-2.5 text-xs font-medium transition-all disabled:opacity-45"
-                style={{
-                  backgroundColor: 'var(--accent-crimson)',
-                  color: '#F8F7F4'
+                type="button"
+                onClick={() => {
+                  onQueryChange('');
+                  setOpen(false);
+                  inputRef.current?.focus();
                 }}
-                title="Consultar también OpenAlex + SciELO en tiempo real"
+                className="absolute right-0 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded"
+                style={{ color: 'var(--text-muted)' }}
+                aria-label="Borrar búsqueda"
               >
-                {liveSearching ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Globe2 className="h-3.5 w-3.5" />
-                )}
-                <span>Red SciELO</span>
+                <X className="h-4 w-4" aria-hidden="true" />
               </button>
-            </form>
+            ) : null}
 
-            {liveCountAdded > 0 && (
-              <div className="mt-1 flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--accent-moss)' }}>
-                <span>+{liveCountAdded} publicaciones nuevas recuperadas en tiempo real desde OpenAlex/SciELO.</span>
-              </div>
-            )}
-
-            {/* O(1) Autocomplete Dropdown */}
-            {dropdownOpen && suggestions.length > 0 && (
-              <div
-                className="absolute left-0 right-0 top-11 z-40 overflow-hidden rounded border shadow-lg"
-                style={{
-                  backgroundColor: 'var(--bg-elevated)',
-                  borderColor: 'var(--border-strong)'
-                }}
-              >
-                <div
-                  className="border-b px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider"
-                  style={{ borderColor: 'var(--border-hairline)', color: 'var(--text-muted)' }}
+            <ul
+              id={listboxId}
+              role="listbox"
+              aria-label="Sugerencias de búsqueda"
+              hidden={!expanded}
+              className="absolute left-0 right-0 top-full z-40 mt-1 max-h-72 overflow-y-auto rounded-md border py-1"
+              style={{
+                backgroundColor: 'var(--bg-elevated)',
+                borderColor: 'var(--border-strong)',
+                boxShadow: 'var(--shadow-pop)'
+              }}
+            >
+              {suggestions.map((suggestion, index) => (
+                <li
+                  key={`${suggestion.category}-${suggestion.value}`}
+                  id={optionId(index)}
+                  role="option"
+                  aria-selected={index === activeIndex}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => choose(suggestion)}
+                  onMouseMove={() => setActiveIndex(index)}
+                  className="flex min-h-11 cursor-pointer items-center justify-between gap-3 px-3 py-2 text-sm"
+                  style={{ backgroundColor: index === activeIndex ? 'var(--bg-hover)' : 'transparent' }}
                 >
-                  Sugerencias instantáneas del catálogo
-                </div>
-                <ul className="max-h-64 overflow-y-auto py-1">
-                  {suggestions.map((s, idx) => (
-                    <li key={`${s.category}-${s.value}`}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onQueryChange(s.value);
-                          setDropdownOpen(false);
-                        }}
-                        className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition-colors"
-                        style={{
-                          backgroundColor: idx === activeIndex ? 'var(--bg-hover)' : 'transparent'
-                        }}
-                      >
-                        <span className="truncate font-medium">{s.label}</span>
-                        <span
-                          className="shrink-0 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider"
-                          style={{
-                            backgroundColor: 'var(--bg-surface)',
-                            color: 'var(--text-muted)'
-                          }}
-                        >
-                          {s.category}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
+                  <span className="truncate font-medium">{suggestion.label}</span>
+                  <span className="micro shrink-0">{suggestion.category}</span>
+                </li>
+              ))}
+            </ul>
+            <div className="sr-only" role="status" aria-live="polite">
+              {expanded ? `${suggestions.length} sugerencias disponibles` : ''}
+            </div>
+          </form>
 
-          {/* Right Action Controls */}
-          <div className="order-2 flex items-center gap-2 lg:order-3">
-            <button
-              type="button"
-              onClick={onOpenSyncModal}
-              className="group inline-flex h-9 items-center gap-1.5 rounded border px-2.5 text-xs font-medium transition-colors"
-              style={{
-                borderColor: 'var(--border-hairline)',
-                backgroundColor: 'var(--bg-surface)',
-                color: 'var(--text-secondary)'
-              }}
-              title="Sincronización OAI-PMH y estado Edge"
-            >
-              <RefreshCw className="anim-reactive-spin h-3.5 w-3.5" />
-              <span className="hidden sm:inline">OAI-PMH</span>
-            </button>
+          <button
+            type="button"
+            onClick={() => setSearchOpen(false)}
+            className="btn btn-ghost btn-sm shrink-0 md:hidden"
+          >
+            Cerrar
+          </button>
+        </div>
 
-            <button
-              type="button"
-              onClick={onOpenShelves}
-              className="inline-flex h-9 items-center gap-1.5 rounded border px-3 text-xs font-medium transition-colors"
-              style={{
-                borderColor: 'var(--border-hairline)',
-                backgroundColor: 'var(--bg-surface)',
-                color: 'var(--text-primary)'
-              }}
-            >
-              <Bookmark className="h-3.5 w-3.5" style={{ color: 'var(--accent-crimson)' }} />
-              <span>Estanterías</span>
-              <span
-                className="rounded px-1.5 py-0.5 font-code text-[11px]"
-                style={{
-                  backgroundColor: 'var(--accent-crimson-soft)',
-                  color: 'var(--accent-crimson)'
-                }}
-              >
-                {savedCount}
-              </span>
-            </button>
+        {/* Actions */}
+        <div className={`${searchOpen ? 'hidden md:flex' : 'flex'} ml-auto shrink-0 items-center gap-1.5 md:ml-0`}>
+          <button
+            ref={searchToggleRef}
+            type="button"
+            onClick={() => setSearchOpen(true)}
+            className="btn btn-quiet btn-icon md:hidden"
+            aria-label="Buscar en el catálogo"
+            aria-expanded={searchOpen}
+          >
+            <Search className="h-4 w-4" aria-hidden="true" />
+          </button>
 
-            <button
-              type="button"
-              onClick={onToggleDarkMode}
-              className="inline-flex h-9 w-9 items-center justify-center rounded border transition-colors"
-              style={{
-                borderColor: 'var(--border-hairline)',
-                backgroundColor: 'var(--bg-surface)',
-                color: 'var(--text-secondary)'
-              }}
-              aria-label={darkMode ? 'Cambiar a modo papel claro' : 'Cambiar a modo archivo oscuro'}
-              title={darkMode ? 'Modo papel claro' : 'Modo archivo nocturno'}
+          <button
+            type="button"
+            onClick={onOpenShelves}
+            className="btn btn-quiet btn-sm"
+            aria-label={`Mis estanterías, ${savedCount} ${savedCount === 1 ? 'obra guardada' : 'obras guardadas'}`}
+          >
+            <Bookmark className="h-4 w-4" style={{ color: 'var(--accent-primary)' }} aria-hidden="true" />
+            <span className="hidden sm:inline">Estanterías</span>
+            <span
+              className="font-code rounded px-1.5 py-0.5 text-xs"
+              style={{ backgroundColor: 'var(--accent-primary-soft)', color: 'var(--accent-primary)' }}
+              aria-hidden="true"
             >
-              {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </button>
-          </div>
+              {savedCount}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={onToggleDarkMode}
+            className="btn btn-quiet btn-icon btn-sm"
+            aria-label={darkMode ? 'Cambiar al tema claro' : 'Cambiar al tema oscuro'}
+          >
+            {darkMode ? <Sun className="h-4 w-4" aria-hidden="true" /> : <Moon className="h-4 w-4" aria-hidden="true" />}
+          </button>
         </div>
       </div>
     </header>

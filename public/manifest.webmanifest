@@ -1,0 +1,17 @@
+{
+  "name": "Coleebri · Biblioteca Abierta",
+  "short_name": "Coleebri",
+  "description": "Libros y artículos académicos de acceso abierto, listos para leer sin registro.",
+  "lang": "es",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#FAF9F6",
+  "background_color": "#FAF9F6",
+  "categories": ["books", "education"],
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

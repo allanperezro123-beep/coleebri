@@ -3,13 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#1758C4" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#FAF9F6" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0E1116" media="(prefers-color-scheme: dark)" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <title>Coleebri · Biblioteca Académica Abierta</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <title>Coleebri · Biblioteca abierta</title>
     <meta
       name="description"
-      content="Coleebri — Biblioteca académica abierta inspirada en el colibrí de la Universidad Pedagógica Nacional de Colombia. Lee libros y artículos científicos completos desde cualquier dispositivo."
+      content="Coleebri reúne libros y artículos académicos de acceso abierto de SciELO, OpenAlex y Crossref. Léelos completos desde el celular o el computador, sin registro."
     />
+    <script src="/theme-init.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -19,6 +23,7 @@
   </head>
   <body>
     <div id="root"></div>
+    <noscript>Coleebri necesita JavaScript para mostrar el catálogo.</noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

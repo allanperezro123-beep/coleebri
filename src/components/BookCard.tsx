@@ -1,6 +1,15 @@
 import { memo } from 'react';
-import { Bookmark, BookOpen, Eye, FileText, Quote } from 'lucide-react';
-import { OECD_AREA_MAP } from '../lib/taxonomy';
+import { Bookmark, BookOpen, Eye } from 'lucide-react';
+import type { ReadingProgress } from '../lib/readingProgress';
+import {
+  DOCTYPE_LABELS,
+  LANGUAGE_LABELS,
+  areaFillColor,
+  areaTextColor,
+  formatAuthors,
+  getArea,
+  langAttr
+} from '../lib/publication';
 import type { Publication } from '../types/publication';
 import { PdfCoverThumbnail } from './PdfCoverThumbnail';
 
@@ -9,242 +18,177 @@ interface BookCardProps {
   viewMode: 'grid' | 'list';
   enableLivePdfRender: boolean;
   isSaved: boolean;
+  progress?: ReadingProgress;
   onSelect: (pub: Publication) => void;
   onReadPdf: (pub: Publication) => void;
   onQuickSave: (pub: Publication) => void;
 }
 
-const DOC_TYPE_LABEL: Record<Publication['docType'], string> = {
-  book: 'Libro',
-  chapter: 'Capítulo',
-  article: 'Artículo'
-};
+export function progressPercent(progress: ReadingProgress | undefined, pageCount?: number): number | null {
+  if (!progress) return null;
+  const total = progress.totalPages ?? pageCount;
+  if (!total || total < 1) return null;
+  return Math.min(100, Math.max(1, Math.round((progress.page / total) * 100)));
+}
+
+function ProgressBar({ percent, className = '' }: { percent: number; className?: string }) {
+  return (
+    <div
+      className={`progress-track ${className}`}
+      role="progressbar"
+      aria-label="Progreso de lectura"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={percent}
+    >
+      <div className="progress-fill" style={{ width: `${percent}%` }} />
+    </div>
+  );
+}
 
 export const BookCard = memo(function BookCard({
   publication,
   viewMode,
   enableLivePdfRender,
   isSaved,
+  progress,
   onSelect,
   onReadPdf,
   onQuickSave
 }: BookCardProps) {
-  const area = OECD_AREA_MAP[publication.oecdArea];
-  const authorsText =
-    publication.authors.length > 0
-      ? publication.authors.slice(0, 3).join('; ') + (publication.authors.length > 3 ? ' et al.' : '')
-      : publication.publisher;
+  const area = getArea(publication.oecdArea);
+  const hasText = Boolean(publication.pdfUrl);
+  const resuming = hasText && progress !== undefined && progress.page > 1;
+  const percent = progressPercent(progress, publication.pageCount);
+
+  const meta = [
+    publication.country,
+    LANGUAGE_LABELS[publication.language],
+    publication.year ? String(publication.year) : null
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+  // At most one badge: a missing full text matters most, otherwise the type when it is not a book.
+  const badge = !hasText ? 'Sin texto completo' : publication.docType !== 'book' ? DOCTYPE_LABELS[publication.docType] : null;
+
+  const saveLabel = `${isSaved ? 'Quitar de estantería' : 'Guardar en estantería'}: ${publication.title}`;
+  const primaryLabel = hasText ? (resuming ? 'Continuar' : 'Leer') : 'Ver ficha';
+
+  const title = (
+    <button
+      type="button"
+      className="card-link font-editorial text-[15px] font-semibold leading-snug group-hover:underline"
+      lang={langAttr(publication)}
+      onClick={() => onSelect(publication)}
+    >
+      {publication.title}
+    </button>
+  );
+
+  const primary = (
+    <button
+      type="button"
+      className="btn btn-primary btn-sm card-action"
+      onClick={() => (hasText ? onReadPdf(publication) : onSelect(publication))}
+      aria-label={`${primaryLabel}: ${publication.title}`}
+    >
+      {hasText ? <BookOpen className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
+      <span>{primaryLabel}</span>
+    </button>
+  );
+
+  const bookmark = (
+    <button
+      type="button"
+      className="btn btn-quiet btn-icon btn-sm card-action"
+      onClick={() => onQuickSave(publication)}
+      aria-label={saveLabel}
+      title={isSaved ? 'Quitar de estantería' : 'Guardar en estantería'}
+    >
+      <Bookmark
+        className="h-4 w-4"
+        fill={isSaved ? 'currentColor' : 'none'}
+        style={{ color: isSaved ? 'var(--accent-primary)' : undefined }}
+        aria-hidden="true"
+      />
+    </button>
+  );
 
   if (viewMode === 'list') {
     return (
-      <article
-        className="group flex flex-col justify-between gap-3 rounded border p-3.5 transition-all duration-200 sm:flex-row sm:items-center"
-        style={{
-          backgroundColor: 'var(--bg-card)',
-          borderColor: 'var(--border-hairline)',
-          transitionTimingFunction: 'var(--ease-glide)'
-        }}
-      >
-        <div
-          onClick={() => onSelect(publication)}
-          className="flex min-w-0 flex-1 cursor-pointer items-start gap-3.5"
-        >
-          <div
-            className="mt-1 h-11 w-1.5 shrink-0 rounded-xs"
-            style={{ backgroundColor: area.accent }}
-          />
-          <div className="min-w-0 flex-1">
-            <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[11px]">
-              <span
-                className="rounded px-1.5 py-0.5 font-semibold uppercase tracking-wide"
-                style={{ backgroundColor: `${area.accent}1A`, color: area.accent }}
-              >
-                {DOC_TYPE_LABEL[publication.docType]}
-              </span>
-              <span className="font-code uppercase" style={{ color: 'var(--text-muted)' }}>
-                {publication.language}
-              </span>
-              {publication.year && (
-                <span className="font-code" style={{ color: 'var(--text-muted)' }}>
-                  · {publication.year}
-                </span>
-              )}
-              <span className="truncate" style={{ color: 'var(--text-muted)' }}>
-                · {publication.country || 'SciELO'} · {publication.collection}
-              </span>
-              {publication.citedByCount ? (
-                <span className="inline-flex items-center gap-1 font-code" style={{ color: 'var(--accent-ochre)' }}>
-                  · <Quote className="h-3 w-3" /> {publication.citedByCount}
-                </span>
-              ) : null}
-            </div>
-            <h3 className="font-editorial line-clamp-1 text-base font-semibold group-hover:underline">
-              {publication.title}
-            </h3>
-            <p className="mt-0.5 line-clamp-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
-              {authorsText} — <span style={{ color: 'var(--text-muted)' }}>{publication.publisher}</span>
-            </p>
-          </div>
+      <article className="book-card group flex items-center gap-3 overflow-hidden p-3 sm:p-3.5" data-view="list">
+        <span
+          className="h-12 w-1 shrink-0 self-center rounded-sm"
+          style={{ backgroundColor: areaFillColor(area.id) }}
+          aria-hidden="true"
+        />
+        <div className="min-w-0 flex-1">
+          <h3 className="line-clamp-2 sm:line-clamp-1">{title}</h3>
+          <p className="mt-0.5 line-clamp-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
+            {formatAuthors(publication)}
+          </p>
+          <p className="mt-0.5 line-clamp-1 text-xs" style={{ color: 'var(--text-muted)' }}>
+            {meta}
+            {badge ? <span className="font-semibold"> · {badge}</span> : null}
+            {progress && progress.page > 1 && percent === null ? ` · pág. ${progress.page}` : ''}
+          </p>
         </div>
-
-        <div className="flex shrink-0 items-center gap-1.5 self-end sm:self-center">
-          <button
-            type="button"
-            onClick={() => onQuickSave(publication)}
-            className="inline-flex h-8 w-8 items-center justify-center rounded border transition-colors"
-            style={{
-              borderColor: isSaved ? 'var(--accent-crimson)' : 'var(--border-hairline)',
-              backgroundColor: isSaved ? 'var(--accent-crimson-soft)' : 'var(--bg-surface)',
-              color: isSaved ? 'var(--accent-crimson)' : 'var(--text-secondary)'
-            }}
-            title={isSaved ? 'Guardado en estantería' : 'Guardar en Lecturas Esenciales'}
-          >
-            <Bookmark className="h-3.5 w-3.5" fill={isSaved ? 'currentColor' : 'none'} />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onSelect(publication)}
-            className="inline-flex h-8 items-center gap-1.5 rounded border px-2.5 text-xs font-medium transition-colors"
-            style={{
-              borderColor: 'var(--border-hairline)',
-              backgroundColor: 'var(--bg-surface)',
-              color: 'var(--text-primary)'
-            }}
-          >
-            <Eye className="h-3.5 w-3.5" />
-            <span>Ficha</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onReadPdf(publication)}
-            className="inline-flex h-8 items-center gap-1.5 rounded px-3 text-xs font-medium transition-opacity hover:opacity-90"
-            style={{
-              backgroundColor: 'var(--accent-crimson)',
-              color: '#FAF9F6'
-            }}
-          >
-            <BookOpen className="h-3.5 w-3.5" />
-            <span>Leer aquí</span>
-          </button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {primary}
+          {bookmark}
         </div>
+        {percent !== null && progress && progress.page > 1 ? (
+          <ProgressBar percent={percent} className="absolute inset-x-0 bottom-0" />
+        ) : null}
       </article>
     );
   }
 
   return (
-    <article
-      className="group flex flex-col overflow-hidden rounded border transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md"
-      style={{
-        backgroundColor: 'var(--bg-card)',
-        borderColor: 'var(--border-hairline)',
-        transitionTimingFunction: 'var(--ease-glide)'
-      }}
-    >
-      {/* Cover Area */}
-      <div onClick={() => onSelect(publication)} className="relative cursor-pointer p-3 pb-0">
-        <PdfCoverThumbnail
-          publication={publication}
-          enableLivePdfRender={enableLivePdfRender}
-          className="aspect-[3/4] w-full rounded-[3px]"
-        />
-
-        {/* Floating top badges */}
-        <div className="pointer-events-none absolute left-5 top-5 flex flex-wrap gap-1">
-          <span
-            className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider shadow-xs backdrop-blur-xs"
-            style={{
-              backgroundColor: 'rgba(24, 24, 22, 0.78)',
-              color: '#F8F7F4'
-            }}
-          >
-            {DOC_TYPE_LABEL[publication.docType]}
-          </span>
-          {publication.pdfUrl && (
+    <article className="book-card group flex flex-col overflow-hidden" data-view="grid">
+      <div className="p-3 pb-0">
+        <div className="relative">
+          <PdfCoverThumbnail
+            publication={publication}
+            enableLivePdfRender={enableLivePdfRender}
+            className="aspect-[3/4] w-full rounded-[3px]"
+          />
+          {badge ? (
             <span
-              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-code text-[10px] font-medium shadow-xs"
+              className="pointer-events-none absolute left-2 top-2 rounded border px-1.5 py-0.5 text-xs font-semibold"
               style={{
-                backgroundColor: 'var(--accent-crimson)',
-                color: '#F8F7F4'
+                backgroundColor: 'var(--bg-elevated)',
+                borderColor: 'var(--border-strong)',
+                color: 'var(--text-primary)'
               }}
             >
-              <FileText className="h-2.5 w-2.5" /> PDF
+              {badge}
             </span>
-          )}
+          ) : null}
+          {percent !== null && progress && progress.page > 1 ? (
+            <ProgressBar percent={percent} className="absolute inset-x-0 bottom-0" />
+          ) : null}
         </div>
-
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onQuickSave(publication);
-          }}
-          className="absolute right-5 top-5 inline-flex h-7 w-7 items-center justify-center rounded border shadow-xs backdrop-blur-xs transition-colors"
-          style={{
-            borderColor: isSaved ? 'var(--accent-crimson)' : 'rgba(248, 247, 244, 0.35)',
-            backgroundColor: isSaved ? 'var(--accent-crimson)' : 'rgba(24, 24, 22, 0.65)',
-            color: '#F8F7F4'
-          }}
-          title={isSaved ? 'Guardado en estantería' : 'Guardar en estantería'}
-          aria-label="Guardar en estantería"
-        >
-          <Bookmark className="h-3.5 w-3.5" fill={isSaved ? 'currentColor' : 'none'} />
-        </button>
       </div>
 
-      {/* Metadata Body */}
-      <div className="flex flex-1 flex-col justify-between p-3.5">
-        <div onClick={() => onSelect(publication)} className="cursor-pointer">
-          <div className="mb-1.5 flex items-center justify-between gap-2 text-[11px]">
-            <span
-              className="truncate font-semibold uppercase tracking-wider"
-              style={{ color: area.accent }}
-            >
-              {publication.oecdAreaLabel}
-            </span>
-            <span className="shrink-0 font-code uppercase" style={{ color: 'var(--text-muted)' }}>
-              {publication.country && publication.country !== 'Internacional' ? `${publication.country.slice(0, 3).toUpperCase()} · ` : ''}
-              {publication.language} {publication.year ? `· ${publication.year}` : ''}
-            </span>
-          </div>
+      <div className="flex flex-1 flex-col p-3.5 pt-3">
+        <p className="micro truncate" style={{ color: areaTextColor(area.id) }}>
+          {area.label}
+        </p>
+        <h3 className="mt-1 line-clamp-3">{title}</h3>
+        <p className="mt-1 line-clamp-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
+          {formatAuthors(publication)}
+        </p>
+        <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>
+          {meta}
+          {progress && progress.page > 1 && percent === null ? ` · pág. ${progress.page}` : ''}
+        </p>
 
-          <h3 className="font-editorial line-clamp-2 text-[15px] font-semibold leading-snug group-hover:underline">
-            {publication.title}
-          </h3>
-
-          <p className="mt-1 line-clamp-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
-            {authorsText}
-          </p>
-        </div>
-
-        {/* Footer CTA bar */}
-        <div
-          className="mt-3 flex items-center justify-between gap-2 border-t pt-2.5"
-          style={{ borderColor: 'var(--border-hairline)' }}
-        >
-          <button
-            type="button"
-            onClick={() => onSelect(publication)}
-            className="inline-flex items-center gap-1 text-xs font-medium transition-colors hover:opacity-80"
-            style={{ color: 'var(--text-secondary)' }}
-          >
-            <Eye className="h-3.5 w-3.5" />
-            <span>Vista previa</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onReadPdf(publication)}
-            className="inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-opacity hover:opacity-90"
-            style={{
-              backgroundColor: 'var(--accent-crimson)',
-              color: '#FAF9F6'
-            }}
-          >
-            <BookOpen className="h-3.5 w-3.5" />
-            <span>Leer aquí</span>
-          </button>
+        <div className="min-h-3 flex-1" aria-hidden="true" />
+        <div className="flex items-center gap-2 border-t pt-3" style={{ borderColor: 'var(--border-hairline)' }}>
+          <div className="flex-1 [&>button]:w-full">{primary}</div>
+          {bookmark}
         </div>
       </div>
     </article>

@@ -1,10 +1,16 @@
-import { useEffect, useState } from 'react';
-import { CheckCircle2, Database, Loader2, RefreshCw, Server, X } from 'lucide-react';
+import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { CheckCircle2, Database, Loader2, RefreshCw, TriangleAlert } from 'lucide-react';
+import { readString, writeString } from '../lib/storage';
+import { Modal, ModalHeader } from './Modal';
 
 interface SyncStatusModalProps {
-  open: boolean;
   onClose: () => void;
   onSyncCompleted: () => void;
+  /** Number of works in the catalogue and how many can be read in the app. */
+  catalogSize: number;
+  withPdf: number;
+  /** 'server' = live database; 'seed' = bundled starter catalogue. */
+  source: 'server' | 'seed' | 'pending';
 }
 
 interface SyncLog {
@@ -12,171 +18,259 @@ interface SyncLog {
   source: string;
   records_synced: number;
   status: string;
-  message: string;
   synced_at: string;
 }
 
-export function SyncStatusModal({ open, onClose, onSyncCompleted }: SyncStatusModalProps) {
+const ADMIN_TOKEN_KEY = 'coleebri:admin-token';
+
+const SOURCE_LABELS: Record<string, string> = {
+  opds: 'SciELO Libros (novedades)',
+  'books-oai': 'SciELO Libros (catálogo completo)',
+  'scielo-mx': 'SciELO México',
+  'scielo-pe': 'SciELO Perú'
+};
+
+const SYNC_TARGETS = ['opds', 'books-oai', 'scielo-mx', 'scielo-pe'] as const;
+
+function isLog(value: unknown): value is SyncLog {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.id === 'number' &&
+    typeof v.source === 'string' &&
+    typeof v.records_synced === 'number' &&
+    typeof v.status === 'string' &&
+    typeof v.synced_at === 'string'
+  );
+}
+
+function formatDate(value: string): string {
+  const parsed = Date.parse(value.includes('T') ? value : value.replace(' ', 'T') + 'Z');
+  if (Number.isNaN(parsed)) return 'fecha desconocida';
+  return new Intl.DateTimeFormat('es', { dateStyle: 'medium', timeStyle: 'short' }).format(parsed);
+}
+
+export function SyncStatusModal({ onClose, onSyncCompleted, catalogSize, withPdf, source }: SyncStatusModalProps) {
+  const uid = useId();
+  const titleId = `${uid}-title`;
   const [logs, setLogs] = useState<SyncLog[]>([]);
   const [d1Connected, setD1Connected] = useState(false);
+  const [loadingStatus, setLoadingStatus] = useState(true);
+  const [statusUnavailable, setStatusUnavailable] = useState(false);
+
+  const [token, setToken] = useState(() => readString(ADMIN_TOKEN_KEY, 'session') ?? '');
   const [syncingTarget, setSyncingTarget] = useState<string | null>(null);
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
+
+  const loadStatus = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const res = await fetch('/api/scielo-sync', { signal, headers: { Accept: 'application/json' } });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data: unknown = await res.json();
+      if (typeof data !== 'object' || data === null) throw new Error('bad response');
+      const record = data as Record<string, unknown>;
+      setLogs(Array.isArray(record.logs) ? record.logs.filter(isLog) : []);
+      setD1Connected(record.d1Connected === true);
+      setStatusUnavailable(false);
+    } catch (error) {
+      if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) return;
+      setStatusUnavailable(true);
+    } finally {
+      if (!signal?.aborted) setLoadingStatus(false);
+    }
+  }, []);
 
   useEffect(() => {
-    if (!open) return;
-    fetch('/api/scielo-sync')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { logs?: SyncLog[]; d1Connected?: boolean } | null) => {
-        if (!d) return;
-        setLogs(d.logs || []);
-        setD1Connected(Boolean(d.d1Connected));
-      })
-      .catch(() => undefined);
-  }, [open]);
+    const controller = new AbortController();
+    void loadStatus(controller.signal);
+    return () => controller.abort();
+  }, [loadStatus]);
 
-  if (!open) return null;
+  // last successful run of each source
+  const lastBySource = useMemo(() => {
+    const map = new Map<string, SyncLog>();
+    for (const log of logs) {
+      const current = map.get(log.source);
+      if (!current || log.id > current.id) map.set(log.source, log);
+    }
+    return [...map.values()].sort((a, b) => b.id - a.id);
+  }, [logs]);
 
-  const triggerSync = async (target: 'opds' | 'books-oai' | 'scielo-mx' | 'scielo-pe') => {
+  const lastOk = logs.find((l) => l.status === 'ok');
+
+  const updateToken = (value: string) => {
+    setToken(value);
+    writeString(ADMIN_TOKEN_KEY, value.trim() ? value.trim() : null, 'session');
+  };
+
+  const runSync = async (target: (typeof SYNC_TARGETS)[number]) => {
+    const bearer = token.trim();
+    if (!bearer) {
+      setFeedback({ tone: 'error', text: 'Escribe primero el token de administración.' });
+      return;
+    }
     setSyncingTarget(target);
     setFeedback(null);
     try {
       const res = await fetch('/api/scielo-sync', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + bearer },
         body: JSON.stringify({ target })
       });
-      const data = (await res.json()) as { ok?: boolean; synced?: number; error?: string };
-      if (data.ok) {
-        setFeedback(`Sincronizados ${data.synced ?? 0} registros desde ${target} hacia D1.`);
+      let data: Record<string, unknown> = {};
+      try {
+        const parsed: unknown = await res.json();
+        if (typeof parsed === 'object' && parsed !== null) data = parsed as Record<string, unknown>;
+      } catch {
+        // body was not JSON
+      }
+      if (res.ok && data.ok === true) {
+        const synced = typeof data.synced === 'number' ? data.synced : 0;
+        setFeedback({ tone: 'ok', text: `Se actualizaron ${synced} registros desde ${SOURCE_LABELS[target]}.` });
         onSyncCompleted();
-        const logsRes = await fetch('/api/scielo-sync').then((r) => r.json() as Promise<{ logs?: SyncLog[] }>);
-        setLogs(logsRes.logs || []);
+        void loadStatus();
+      } else if (res.status === 401 || res.status === 403) {
+        setFeedback({ tone: 'error', text: 'El token no es válido o no tiene permisos de administración.' });
+      } else if (res.status === 429) {
+        setFeedback({ tone: 'error', text: 'Hay que esperar un poco antes de volver a sincronizar.' });
       } else {
-        setFeedback(`Aviso de origen (${target}): ${data.error || 'No se pudo completar la sincronización'}`);
+        setFeedback({ tone: 'error', text: `No se pudo actualizar ${SOURCE_LABELS[target]}. Inténtalo más tarde.` });
       }
     } catch {
-      setFeedback('Endpoint Edge /api/scielo-sync disponible en despliegue Cloudflare Pages.');
+      setFeedback({ tone: 'error', text: 'No hay conexión con el servidor. Inténtalo de nuevo.' });
     } finally {
       setSyncingTarget(null);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-black/50 backdrop-blur-xs" onClick={onClose} />
+    <Modal variant="center" size="sm" labelledBy={titleId} onClose={onClose}>
+      <ModalHeader
+        titleId={titleId}
+        title="Estado del catálogo"
+        icon={<Database className="h-5 w-5 shrink-0" style={{ color: 'var(--accent-primary)' }} aria-hidden="true" />}
+        onClose={onClose}
+        closeLabel="Cerrar estado del catálogo"
+      />
 
-      <div
-        className="relative z-10 w-full max-w-xl rounded border shadow-2xl"
-        style={{ backgroundColor: 'var(--bg-page)', borderColor: 'var(--border-strong)' }}
-        role="dialog"
-        aria-label="Sincronización OAI-PMH y Edge D1"
-      >
-        <div
-          className="flex items-center justify-between border-b px-5 py-3.5"
-          style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-hairline)' }}
-        >
-          <div className="flex items-center gap-2">
-            <Server className="h-4 w-4" style={{ color: 'var(--accent-crimson)' }} />
-            <h2 className="font-editorial text-base font-semibold">
-              Cosecha OAI-PMH &amp; Cloudflare Edge D1
-            </h2>
+      <div className="modal-body space-y-5 p-4 text-sm sm:p-5">
+        <dl className="grid grid-cols-2 gap-3">
+          <div className="rounded border p-3" style={{ borderColor: 'var(--border-hairline)', backgroundColor: 'var(--bg-surface)' }}>
+            <dt className="micro">Obras en el catálogo</dt>
+            <dd className="font-code mt-1 text-xl font-semibold">{source === 'pending' ? '…' : catalogSize}</dd>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex h-8 w-8 items-center justify-center rounded border"
-            style={{ borderColor: 'var(--border-hairline)', backgroundColor: 'var(--bg-card)' }}
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="space-y-4 p-5 text-xs">
-          <div
-            className="flex items-center justify-between rounded border p-3"
-            style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-hairline)' }}
-          >
-            <div className="flex items-center gap-2">
-              <Database className="h-4 w-4" style={{ color: 'var(--accent-moss)' }} />
-              <span>Base de datos SQLite en el borde (Cloudflare D1)</span>
-            </div>
-            <span className="font-code font-semibold" style={{ color: d1Connected ? 'var(--accent-moss)' : 'var(--accent-ochre)' }}>
-              {d1Connected ? 'CONECTADA' : 'MODO LOCAL'}
-            </span>
+          <div className="rounded border p-3" style={{ borderColor: 'var(--border-hairline)', backgroundColor: 'var(--bg-surface)' }}>
+            <dt className="micro">Con texto completo</dt>
+            <dd className="font-code mt-1 text-xl font-semibold">{source === 'pending' ? '…' : withPdf}</dd>
           </div>
+        </dl>
 
-          <div>
-            <p className="mb-2 font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
-              Ejecutar cosecha incremental desde el Edge Worker:
+        {source === 'seed' ? (
+          <p className="callout" data-tone="warn">
+            Estás viendo un catálogo de muestra guardado en la aplicación. La colección completa se carga cuando hay
+            conexión con el servidor.
+          </p>
+        ) : null}
+
+        <section aria-labelledby={`${uid}-updates`}>
+          <h3 id={`${uid}-updates`} className="micro mb-2">
+            Últimas actualizaciones
+          </h3>
+          {loadingStatus ? (
+            <p style={{ color: 'var(--text-muted)' }} role="status">
+              Consultando el estado…
             </p>
+          ) : statusUnavailable ? (
+            <p style={{ color: 'var(--text-muted)' }}>El historial de actualizaciones no está disponible ahora.</p>
+          ) : lastBySource.length === 0 ? (
+            <p style={{ color: 'var(--text-muted)' }}>Todavía no hay actualizaciones registradas.</p>
+          ) : (
+            <>
+              {lastOk ? (
+                <p className="mb-2" style={{ color: 'var(--text-secondary)' }}>
+                  Última actualización correcta: <strong>{formatDate(lastOk.synced_at)}</strong>
+                  {d1Connected ? '' : ' (base de datos no conectada)'}
+                </p>
+              ) : null}
+              <ul className="space-y-1.5">
+                {lastBySource.map((log) => (
+                  <li
+                    key={log.id}
+                    className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 rounded border px-3 py-2"
+                    style={{ borderColor: 'var(--border-hairline)', backgroundColor: 'var(--bg-card)' }}
+                  >
+                    <span className="font-medium">{SOURCE_LABELS[log.source] ?? log.source}</span>
+                    <span className="text-xs" style={{ color: log.status === 'ok' ? 'var(--text-secondary)' : 'var(--danger)' }}>
+                      {formatDate(log.synced_at)} ·{' '}
+                      {log.status === 'ok' ? `${log.records_synced} registros` : 'no se completó'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </section>
+
+        <details className="rounded border" style={{ borderColor: 'var(--border-hairline)' }}>
+          <summary className="flex min-h-11 cursor-pointer items-center px-3 text-sm font-medium">Administración</summary>
+          <div className="space-y-3 border-t p-3" style={{ borderColor: 'var(--border-hairline)' }}>
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              Solo para quien administra el sitio. El token se guarda únicamente en esta pestaña y se borra al
+              cerrarla.
+            </p>
+            <div>
+              <label htmlFor={`${uid}-token`} className="mb-1 block text-xs font-medium">
+                Token de administración
+              </label>
+              <input
+                id={`${uid}-token`}
+                type="password"
+                autoComplete="off"
+                value={token}
+                onChange={(e) => updateToken(e.target.value)}
+                className="field font-code"
+              />
+            </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {[
-                { id: 'opds', label: 'SciELO Books OPDS (Nuevos)' },
-                { id: 'books-oai', label: 'SciELO Books OAI-PMH (oai_dc)' },
-                { id: 'scielo-mx', label: 'SciELO México OAI-PMH' },
-                { id: 'scielo-pe', label: 'SciELO Perú OAI-PMH' }
-              ].map((src) => (
+              {SYNC_TARGETS.map((target) => (
                 <button
-                  key={src.id}
+                  key={target}
                   type="button"
                   disabled={syncingTarget !== null}
-                  onClick={() => triggerSync(src.id as 'opds' | 'books-oai' | 'scielo-mx' | 'scielo-pe')}
-                  className="flex items-center justify-between rounded border px-3 py-2 text-left font-medium transition-colors disabled:opacity-50"
-                  style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-hairline)' }}
+                  onClick={() => void runSync(target)}
+                  className="btn btn-quiet btn-sm justify-between"
                 >
-                  <span>{src.label}</span>
-                  {syncingTarget === src.id ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>{SOURCE_LABELS[target]}</span>
+                  {syncingTarget === target ? (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                   ) : (
-                    <RefreshCw className="h-3.5 w-3.5" style={{ color: 'var(--accent-crimson)' }} />
+                    <RefreshCw className="h-4 w-4" aria-hidden="true" />
                   )}
                 </button>
               ))}
             </div>
-          </div>
-
-          {feedback && (
-            <div
-              className="flex items-center gap-2 rounded border p-2.5"
-              style={{
-                borderColor: 'var(--accent-moss)',
-                backgroundColor: 'rgba(77, 107, 83, 0.12)',
-                color: 'var(--text-primary)'
-              }}
-            >
-              <CheckCircle2 className="h-4 w-4 shrink-0" style={{ color: 'var(--accent-moss)' }} />
-              <span>{feedback}</span>
-            </div>
-          )}
-
-          {logs.length > 0 && (
-            <div>
-              <p className="mb-2 font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
-                Historial reciente en D1
-              </p>
-              <div className="max-h-44 space-y-1.5 overflow-y-auto">
-                {logs.map((log) => (
-                  <div
-                    key={log.id}
-                    className="flex items-center justify-between rounded border px-3 py-1.5"
-                    style={{ borderColor: 'var(--border-hairline)', backgroundColor: 'var(--bg-card)' }}
-                  >
-                    <div className="min-w-0">
-                      <span className="font-code font-semibold">{log.source}</span>
-                      <span className="ml-2" style={{ color: 'var(--text-secondary)' }}>
-                        {log.message}
-                      </span>
-                    </div>
-                    <span className="shrink-0 font-code text-[10px]" style={{ color: 'var(--text-muted)' }}>
-                      {log.status}
-                    </span>
-                  </div>
-                ))}
+            {token ? (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => updateToken('')}>
+                Olvidar token
+              </button>
+            ) : null}
+            {feedback ? (
+              <div
+                className="callout"
+                data-tone={feedback.tone}
+                role={feedback.tone === 'error' ? 'alert' : 'status'}
+              >
+                {feedback.tone === 'ok' ? (
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" style={{ color: 'var(--accent-moss)' }} aria-hidden="true" />
+                ) : (
+                  <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" style={{ color: 'var(--danger)' }} aria-hidden="true" />
+                )}
+                <span>{feedback.text}</span>
               </div>
-            </div>
-          )}
-        </div>
+            ) : null}
+          </div>
+        </details>
       </div>
-    </div>
+    </Modal>
   );
 }

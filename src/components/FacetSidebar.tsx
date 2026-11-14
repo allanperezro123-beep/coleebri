@@ -1,5 +1,6 @@
-import { RotateCcw, X } from 'lucide-react';
-import { OECD_AREA_MAP } from '../lib/taxonomy';
+import { useEffect, useId } from 'react';
+import { RotateCcw } from 'lucide-react';
+import { areaFillColor, areaTextColor } from '../lib/publication';
 import type {
   CatalogFilters,
   CatalogStats,
@@ -7,10 +8,12 @@ import type {
   LanguageCode,
   OecdAreaId
 } from '../types/publication';
+import { Modal, ModalHeader } from './Modal';
 
 interface FacetSidebarProps {
   stats: CatalogStats;
   filters: CatalogFilters;
+  activeFilterCount: number;
   onToggleFacet: <K extends 'oecdAreas' | 'languages' | 'countries' | 'docTypes' | 'collections'>(
     key: K,
     value: CatalogFilters[K][number]
@@ -23,106 +26,95 @@ interface FacetSidebarProps {
   desktopVisible?: boolean;
 }
 
-export function FacetSidebar({
+const YEAR_PRESETS = [
+  { label: '2020 – hoy', from: 2020, to: null },
+  { label: '2015 – 2019', from: 2015, to: 2019 },
+  { label: 'Hasta 2014', from: null, to: 2014 }
+] as const;
+
+type ContentProps = Omit<FacetSidebarProps, 'mobileOpen' | 'onCloseMobile' | 'desktopVisible'>;
+
+function FacetContent({
   stats,
   filters,
+  activeFilterCount,
   onToggleFacet,
   onYearChange,
   onToggleOnlyPdf,
-  onReset,
-  mobileOpen,
-  onCloseMobile,
-  desktopVisible = false
-}: FacetSidebarProps) {
-  const activeFilterCount =
-    filters.oecdAreas.length +
-    filters.languages.length +
-    filters.countries.length +
-    filters.docTypes.length +
-    filters.collections.length +
-    (filters.yearFrom !== null ? 1 : 0) +
-    (filters.yearTo !== null ? 1 : 0) +
-    (filters.onlyWithPdf ? 1 : 0);
+  onReset
+}: ContentProps) {
+  const uid = useId();
 
-  const content = (
+  const parseYear = (raw: string): number | null => {
+    const value = Number.parseInt(raw, 10);
+    return Number.isNaN(value) ? null : value;
+  };
+
+  return (
     <div className="flex flex-col gap-5">
-      <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: 'var(--border-hairline)' }}>
-        <div>
-          <h2 className="font-editorial text-base font-semibold">Filtros Taxonómicos</h2>
-          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            Clasificación OCDE / UNESCO y facetas
-          </p>
-        </div>
-        {activeFilterCount > 0 && (
-          <button
-            type="button"
-            onClick={onReset}
-            className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors"
-            style={{
-              backgroundColor: 'var(--accent-crimson-soft)',
-              color: 'var(--accent-crimson)'
-            }}
-          >
-            <RotateCcw className="h-3 w-3" />
-            <span>Limpiar ({activeFilterCount})</span>
-          </button>
-        )}
-      </div>
+      {activeFilterCount > 0 ? (
+        <button type="button" onClick={onReset} className="btn btn-quiet btn-sm self-start">
+          <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+          <span>Quitar filtros ({activeFilterCount})</span>
+        </button>
+      ) : null}
 
-      {/* Only PDF available switch */}
       <label
-        className="flex cursor-pointer items-center justify-between rounded border px-3 py-2.5 transition-colors"
+        className="flex min-h-11 cursor-pointer items-center justify-between gap-3 rounded border px-3 py-2"
         style={{
-          borderColor: filters.onlyWithPdf ? 'var(--accent-crimson)' : 'var(--border-hairline)',
-          backgroundColor: filters.onlyWithPdf ? 'var(--accent-crimson-soft)' : 'var(--bg-surface)'
+          borderColor: filters.onlyWithPdf ? 'var(--accent-primary)' : 'var(--border-hairline)',
+          backgroundColor: filters.onlyWithPdf ? 'var(--accent-primary-soft)' : 'var(--bg-surface)'
         }}
       >
-        <div>
-          <div className="text-xs font-semibold">Solo lectura inmediata (PDF)</div>
-          <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
-            {stats.withPdf} documentos con PDF abierto
-          </div>
-        </div>
+        <span>
+          <span className="block text-sm font-semibold">Solo texto completo</span>
+          <span className="block text-xs" style={{ color: 'var(--text-muted)' }}>
+            {stats.withPdf} obras se pueden leer aquí mismo
+          </span>
+        </span>
         <input
           type="checkbox"
           checked={filters.onlyWithPdf}
           onChange={onToggleOnlyPdf}
-          className="h-4 w-4 accent-[#9E2A2B]"
+          className="h-5 w-5 shrink-0"
+          style={{ accentColor: 'var(--accent-primary)' }}
         />
       </label>
 
-      {/* OECD / UNESCO Areas */}
-      <section>
-        <h3
-          className="mb-2 text-[11px] font-semibold uppercase tracking-wider"
-          style={{ color: 'var(--text-muted)' }}
-        >
-          Área Temática (OCDE / UNESCO)
+      <section aria-labelledby={`${uid}-areas`}>
+        <h3 id={`${uid}-areas`} className="micro mb-2">
+          Área temática
         </h3>
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-0.5">
           {stats.oecdAreas.map((bucket) => {
             const areaId = bucket.value as OecdAreaId;
-            const def = OECD_AREA_MAP[areaId];
             const selected = filters.oecdAreas.includes(areaId);
             return (
               <button
                 key={bucket.value}
                 type="button"
+                aria-pressed={selected}
                 onClick={() => onToggleFacet('oecdAreas', areaId)}
-                className="flex items-center justify-between gap-2 rounded px-2.5 py-1.5 text-left text-xs transition-colors"
+                className="flex min-h-11 items-center justify-between gap-2 rounded px-2.5 py-1.5 text-left text-sm transition-colors hover:bg-[var(--bg-hover)] sm:min-h-9"
                 style={{
-                  backgroundColor: selected ? 'var(--bg-hover)' : 'transparent',
-                  borderLeft: `3px solid ${selected ? def.accent : 'transparent'}`
+                  backgroundColor: selected ? 'var(--bg-hover)' : undefined,
+                  boxShadow: selected ? `inset 3px 0 0 ${areaFillColor(areaId)}` : undefined
                 }}
               >
-                <span className="flex items-center gap-2 truncate">
+                <span className="flex min-w-0 items-center gap-2">
                   <span
                     className="h-2 w-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: def.accent }}
+                    style={{ backgroundColor: areaFillColor(areaId) }}
+                    aria-hidden="true"
                   />
-                  <span className={selected ? 'font-semibold' : ''}>{bucket.label}</span>
+                  <span
+                    className={selected ? 'font-semibold' : ''}
+                    style={selected ? { color: areaTextColor(areaId) } : undefined}
+                  >
+                    {bucket.label}
+                  </span>
                 </span>
-                <span className="font-code text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                <span className="font-code text-xs" style={{ color: 'var(--text-muted)' }}>
                   {bucket.count}
                 </span>
               </button>
@@ -131,177 +123,116 @@ export function FacetSidebar({
         </div>
       </section>
 
-      {/* Document Type */}
-      <section>
-        <h3
-          className="mb-2 text-[11px] font-semibold uppercase tracking-wider"
-          style={{ color: 'var(--text-muted)' }}
-        >
-          Tipo de Documento
+      <section aria-labelledby={`${uid}-types`}>
+        <h3 id={`${uid}-types`} className="micro mb-2">
+          Tipo de obra
         </h3>
         <div className="flex flex-wrap gap-1.5">
-          {stats.docTypes.map((bucket) => {
-            const typeVal = bucket.value as DocumentType;
-            const selected = filters.docTypes.includes(typeVal);
-            return (
-              <button
-                key={bucket.value}
-                type="button"
-                onClick={() => onToggleFacet('docTypes', typeVal)}
-                className="inline-flex items-center gap-1.5 rounded border px-2.5 py-1 text-xs transition-colors"
-                style={{
-                  borderColor: selected ? 'var(--accent-crimson)' : 'var(--border-hairline)',
-                  backgroundColor: selected ? 'var(--accent-crimson-soft)' : 'var(--bg-surface)',
-                  color: selected ? 'var(--accent-crimson)' : 'var(--text-secondary)'
-                }}
-              >
-                <span>{bucket.label}</span>
-                <span className="font-code text-[10px] opacity-75">{bucket.count}</span>
-              </button>
-            );
-          })}
+          {stats.docTypes.map((bucket) => (
+            <button
+              key={bucket.value}
+              type="button"
+              className="chip"
+              aria-pressed={filters.docTypes.includes(bucket.value as DocumentType)}
+              onClick={() => onToggleFacet('docTypes', bucket.value as DocumentType)}
+            >
+              <span>{bucket.label}</span>
+              <span className="chip-count">{bucket.count}</span>
+            </button>
+          ))}
         </div>
       </section>
 
-      {/* Language */}
-      <section>
-        <h3
-          className="mb-2 text-[11px] font-semibold uppercase tracking-wider"
-          style={{ color: 'var(--text-muted)' }}
-        >
-          Idioma de Publicación
+      <section aria-labelledby={`${uid}-langs`}>
+        <h3 id={`${uid}-langs`} className="micro mb-2">
+          Idioma
         </h3>
         <div className="flex flex-wrap gap-1.5">
-          {stats.languages.map((bucket) => {
-            const langVal = bucket.value as LanguageCode;
-            const selected = filters.languages.includes(langVal);
-            return (
-              <button
-                key={bucket.value}
-                type="button"
-                onClick={() => onToggleFacet('languages', langVal)}
-                className="inline-flex items-center gap-1.5 rounded border px-2.5 py-1 text-xs transition-colors"
-                style={{
-                  borderColor: selected ? 'var(--accent-crimson)' : 'var(--border-hairline)',
-                  backgroundColor: selected ? 'var(--accent-crimson-soft)' : 'var(--bg-surface)',
-                  color: selected ? 'var(--accent-crimson)' : 'var(--text-secondary)'
-                }}
-              >
-                <span>{bucket.label}</span>
-                <span className="font-code text-[10px] opacity-75">{bucket.count}</span>
-              </button>
-            );
-          })}
+          {stats.languages.map((bucket) => (
+            <button
+              key={bucket.value}
+              type="button"
+              className="chip"
+              aria-pressed={filters.languages.includes(bucket.value as LanguageCode)}
+              onClick={() => onToggleFacet('languages', bucket.value as LanguageCode)}
+            >
+              <span>{bucket.label}</span>
+              <span className="chip-count">{bucket.count}</span>
+            </button>
+          ))}
         </div>
       </section>
 
-      {/* País */}
-      {stats.countries.length > 0 && (
-        <section>
-          <h3
-            className="mb-2 text-[11px] font-semibold uppercase tracking-wider"
-            style={{ color: 'var(--text-muted)' }}
-          >
-            País de Origen
+      {stats.countries.length > 0 ? (
+        <section aria-labelledby={`${uid}-countries`}>
+          <h3 id={`${uid}-countries`} className="micro mb-2">
+            País
           </h3>
           <div className="flex flex-wrap gap-1.5">
-            {stats.countries.map((bucket) => {
-              const selected = filters.countries.includes(bucket.value);
-              return (
-                <button
-                  key={bucket.value}
-                  type="button"
-                  onClick={() => onToggleFacet('countries', bucket.value)}
-                  className="inline-flex items-center gap-1.5 rounded border px-2.5 py-1 text-xs transition-colors"
-                  style={{
-                    borderColor: selected ? 'var(--accent-jade)' : 'var(--border-hairline)',
-                    backgroundColor: selected ? 'rgba(46, 139, 116, 0.12)' : 'var(--bg-surface)',
-                    color: selected ? 'var(--accent-jade)' : 'var(--text-secondary)'
-                  }}
-                >
-                  <span>{bucket.label}</span>
-                  <span className="font-code text-[10px] opacity-75">{bucket.count}</span>
-                </button>
-              );
-            })}
+            {stats.countries.map((bucket) => (
+              <button
+                key={bucket.value}
+                type="button"
+                className="chip"
+                aria-pressed={filters.countries.includes(bucket.value)}
+                onClick={() => onToggleFacet('countries', bucket.value)}
+              >
+                <span>{bucket.label}</span>
+                <span className="chip-count">{bucket.count}</span>
+              </button>
+            ))}
           </div>
         </section>
-      )}
+      ) : null}
 
-      {/* Year Range */}
-      <section>
-        <h3
-          className="mb-2 text-[11px] font-semibold uppercase tracking-wider"
-          style={{ color: 'var(--text-muted)' }}
-        >
-          Año de Publicación
+      <section aria-labelledby={`${uid}-years`}>
+        <h3 id={`${uid}-years`} className="micro mb-2">
+          Año de publicación
         </h3>
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <label className="mb-1 block text-[11px]" style={{ color: 'var(--text-muted)' }}>
+            <label htmlFor={`${uid}-from`} className="mb-1 block text-xs" style={{ color: 'var(--text-muted)' }}>
               Desde
             </label>
             <input
+              id={`${uid}-from`}
               type="number"
+              inputMode="numeric"
               min={stats.yearMin}
               max={stats.yearMax}
               value={filters.yearFrom ?? ''}
-              onChange={(e) => {
-                const v = Number.parseInt(e.target.value, 10);
-                onYearChange(Number.isNaN(v) ? null : v, filters.yearTo);
-              }}
+              onChange={(e) => onYearChange(parseYear(e.target.value), filters.yearTo)}
               placeholder={String(stats.yearMin)}
-              className="h-8 w-full rounded border px-2 font-code text-xs outline-none"
-              style={{
-                borderColor: 'var(--border-hairline)',
-                backgroundColor: 'var(--bg-surface)',
-                color: 'var(--text-primary)'
-              }}
+              className="field font-code"
             />
           </div>
           <div>
-            <label className="mb-1 block text-[11px]" style={{ color: 'var(--text-muted)' }}>
+            <label htmlFor={`${uid}-to`} className="mb-1 block text-xs" style={{ color: 'var(--text-muted)' }}>
               Hasta
             </label>
             <input
+              id={`${uid}-to`}
               type="number"
+              inputMode="numeric"
               min={stats.yearMin}
               max={stats.yearMax}
               value={filters.yearTo ?? ''}
-              onChange={(e) => {
-                const v = Number.parseInt(e.target.value, 10);
-                onYearChange(filters.yearFrom, Number.isNaN(v) ? null : v);
-              }}
+              onChange={(e) => onYearChange(filters.yearFrom, parseYear(e.target.value))}
               placeholder={String(stats.yearMax)}
-              className="h-8 w-full rounded border px-2 font-code text-xs outline-none"
-              style={{
-                borderColor: 'var(--border-hairline)',
-                backgroundColor: 'var(--bg-surface)',
-                color: 'var(--text-primary)'
-              }}
+              className="field font-code"
             />
           </div>
         </div>
         <div className="mt-2 flex flex-wrap gap-1.5">
-          {[
-            { label: '2020–Hoy', from: 2020, to: null },
-            { label: '2015–2019', from: 2015, to: 2019 },
-            { label: '≤ 2014', from: null, to: 2014 }
-          ].map((preset) => {
+          {YEAR_PRESETS.map((preset) => {
             const active = filters.yearFrom === preset.from && filters.yearTo === preset.to;
             return (
               <button
                 key={preset.label}
                 type="button"
-                onClick={() =>
-                  onYearChange(active ? null : preset.from, active ? null : preset.to)
-                }
-                className="rounded border px-2 py-0.5 font-code text-[11px] transition-colors"
-                style={{
-                  borderColor: active ? 'var(--accent-crimson)' : 'var(--border-hairline)',
-                  backgroundColor: active ? 'var(--accent-crimson-soft)' : 'transparent',
-                  color: active ? 'var(--accent-crimson)' : 'var(--text-muted)'
-                }}
+                className="chip"
+                aria-pressed={active}
+                onClick={() => (active ? onYearChange(null, null) : onYearChange(preset.from, preset.to))}
               >
                 {preset.label}
               </button>
@@ -310,81 +241,82 @@ export function FacetSidebar({
         </div>
       </section>
 
-      {/* SciELO Collection */}
-      <section>
-        <h3
-          className="mb-2 text-[11px] font-semibold uppercase tracking-wider"
-          style={{ color: 'var(--text-muted)' }}
-        >
-          Colección SciELO
-        </h3>
-        <div className="flex flex-col gap-1">
-          {stats.collections.map((bucket) => {
-            const selected = filters.collections.includes(bucket.value);
-            return (
-              <button
-                key={bucket.value}
-                type="button"
-                onClick={() => onToggleFacet('collections', bucket.value)}
-                className="flex items-center justify-between rounded px-2.5 py-1.5 text-left text-xs transition-colors"
-                style={{
-                  backgroundColor: selected ? 'var(--bg-hover)' : 'transparent',
-                  color: selected ? 'var(--text-primary)' : 'var(--text-secondary)'
-                }}
-              >
-                <span className={selected ? 'font-semibold' : ''}>{bucket.label}</span>
-                <span className="font-code text-[11px]" style={{ color: 'var(--text-muted)' }}>
-                  {bucket.count}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </section>
+      {stats.collections.length > 0 ? (
+        <section aria-labelledby={`${uid}-collections`}>
+          <h3 id={`${uid}-collections`} className="micro mb-2">
+            Colección de origen
+          </h3>
+          <div className="flex flex-col gap-0.5">
+            {stats.collections.map((bucket) => {
+              const selected = filters.collections.includes(bucket.value);
+              return (
+                <button
+                  key={bucket.value}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => onToggleFacet('collections', bucket.value)}
+                  className="flex min-h-11 items-center justify-between gap-2 rounded px-2.5 py-1.5 text-left text-sm transition-colors hover:bg-[var(--bg-hover)] sm:min-h-9"
+                  style={{
+                    backgroundColor: selected ? 'var(--bg-hover)' : undefined,
+                    color: selected ? 'var(--text-primary)' : 'var(--text-secondary)'
+                  }}
+                >
+                  <span className={selected ? 'font-semibold' : ''}>{bucket.label}</span>
+                  <span className="font-code text-xs" style={{ color: 'var(--text-muted)' }}>
+                    {bucket.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
+}
+
+export function FacetSidebar({
+  mobileOpen,
+  onCloseMobile,
+  desktopVisible = false,
+  ...contentProps
+}: FacetSidebarProps) {
+  const titleId = useId();
+
+  // The sheet is for small screens only: close it if the window grows to the desktop layout.
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const query = window.matchMedia('(min-width: 1024px)');
+    const onChange = () => {
+      if (query.matches) onCloseMobile();
+    };
+    query.addEventListener('change', onChange);
+    return () => query.removeEventListener('change', onChange);
+  }, [mobileOpen, onCloseMobile]);
 
   return (
     <>
-      {/* Desktop collapsible sidebar */}
-      {desktopVisible && (
+      {desktopVisible ? (
         <aside
-          className="hidden w-72 shrink-0 rounded border p-4 lg:block lg:self-start"
-          style={{
-            backgroundColor: 'var(--bg-card)',
-            borderColor: 'var(--border-hairline)'
-          }}
+          aria-labelledby={`${titleId}-desktop`}
+          className="hidden w-72 shrink-0 rounded-md border p-4 lg:block lg:self-start"
+          style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-hairline)' }}
         >
-          {content}
+          <h2 id={`${titleId}-desktop`} className="font-editorial mb-4 text-base font-semibold">
+            Filtros
+          </h2>
+          <FacetContent {...contentProps} />
         </aside>
-      )}
+      ) : null}
 
-      {/* Mobile slide-over drawer */}
-      {mobileOpen && (
-        <div className="fixed inset-0 z-50 flex lg:hidden">
-          <div className="fixed inset-0 bg-black/45 backdrop-blur-xs" onClick={onCloseMobile} />
-          <div
-            className="relative z-10 h-full w-80 max-w-[85vw] overflow-y-auto border-r p-4 shadow-xl"
-            style={{
-              backgroundColor: 'var(--bg-page)',
-              borderColor: 'var(--border-hairline)'
-            }}
-          >
-            <div className="mb-3 flex justify-end">
-              <button
-                type="button"
-                onClick={onCloseMobile}
-                className="inline-flex h-8 w-8 items-center justify-center rounded border"
-                style={{ borderColor: 'var(--border-hairline)' }}
-                aria-label="Cerrar filtros"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            {content}
+      {mobileOpen ? (
+        <Modal variant="left" labelledBy={titleId} onClose={onCloseMobile}>
+          <ModalHeader titleId={titleId} title="Filtros" onClose={onCloseMobile} closeLabel="Cerrar filtros" />
+          <div className="modal-body p-4">
+            <FacetContent {...contentProps} />
           </div>
-        </div>
-      )}
+        </Modal>
+      ) : null}
     </>
   );
 }

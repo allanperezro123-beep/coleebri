@@ -1,12 +1,49 @@
-import { useEffect, useRef, useState } from 'react';
-import { buildCoverProxyUrl, buildPdfProxyUrl, pdfjsLib, pdfThumbnailQueue } from '../lib/pdfWorker';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { PDFDocumentLoadingTask, RenderTask } from 'pdfjs-dist';
+import { loadPdfjs, openPdfDocument } from '../lib/pdfLoader';
+import { buildCoverProxyUrl, buildPdfProxyUrl, pdfThumbnailQueue } from '../lib/pdfWorker';
+import { safeExternalUrl, trustedContentUrl } from '../lib/safeUrl';
 import { OECD_AREA_MAP } from '../lib/taxonomy';
-import type { Publication } from '../types/publication';
+import type { OecdAreaDefinition, Publication } from '../types/publication';
 
 interface PdfCoverThumbnailProps {
   publication: Publication;
   enableLivePdfRender: boolean;
   className?: string;
+}
+
+const RASTER_EXTENSION = /\.(?:jpe?g|png|webp|gif|avif)$/i;
+const COVER_HOST = 'books.scielo.org';
+/** Cards are ~3:4; these are only the intrinsic hints that reserve layout (CSS sizes the image). */
+const COVER_WIDTH = 300;
+const COVER_HEIGHT = 400;
+/** Start loading when the card is within this distance of the viewport. */
+const NEAR_VIEWPORT_MARGIN = '300px';
+
+/**
+ * Where to load a real cover from, if there is one.
+ * - https raster image on books.scielo.org: loaded directly (the CSP allows exactly that host);
+ * - any other trusted academic host: through the same-origin proxy (raster images only);
+ * - anything else: no cover.
+ */
+function resolveCoverSrc(coverUrl: string | undefined): string | undefined {
+  const safe = safeExternalUrl(coverUrl);
+  if (!safe) return undefined;
+  try {
+    const url = new URL(safe);
+    if (url.hostname.toLowerCase() === COVER_HOST && RASTER_EXTENSION.test(url.pathname)) {
+      return safe;
+    }
+  } catch {
+    return undefined;
+  }
+  const trusted = trustedContentUrl(coverUrl);
+  return trusted ? buildCoverProxyUrl(trusted) : undefined;
+}
+
+function resolveArea(publication: Publication): OecdAreaDefinition {
+  const map = OECD_AREA_MAP as Partial<Record<string, OecdAreaDefinition>>;
+  return map[publication.oecdArea] ?? OECD_AREA_MAP['social-sciences'];
 }
 
 export function PdfCoverThumbnail({
@@ -16,94 +53,105 @@ export function PdfCoverThumbnail({
 }: PdfCoverThumbnailProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [visible, setVisible] = useState(false);
-  const [imgFailed, setImgFailed] = useState(false);
-  const [pdfRendered, setPdfRendered] = useState(false);
+  const [near, setNear] = useState(false);
+  const [coverFailed, setCoverFailed] = useState(false);
+  const [pdfState, setPdfState] = useState<'idle' | 'rendered' | 'failed'>('idle');
 
-  const areaDef = OECD_AREA_MAP[publication.oecdArea];
+  const areaDef = resolveArea(publication);
+  const coverSrc = useMemo(() => resolveCoverSrc(publication.coverUrl), [publication.coverUrl]);
+  const pdfSource = useMemo(() => safeExternalUrl(publication.pdfUrl), [publication.pdfUrl]);
 
+  const showCover = Boolean(coverSrc) && !coverFailed;
+
+  // 1) Lazy: nothing (not even pdf.js) is touched until the card is near the viewport.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      setNear(true);
+      return;
+    }
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0]?.isIntersecting) {
-          setVisible(true);
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setNear(true);
           observer.disconnect();
         }
       },
-      { rootMargin: '120px' }
+      { rootMargin: NEAR_VIEWPORT_MARGIN }
     );
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
 
-  // Optionally render Page 1 directly from the PDF via byte-range request
+  // 2) Render page 1 only when there is no usable cover image.
   const shouldRenderPdf =
-    visible &&
-    Boolean(publication.pdfUrl) &&
-    (enableLivePdfRender || (!publication.coverUrl && publication.docType === 'book'));
+    near &&
+    !showCover &&
+    pdfState === 'idle' &&
+    Boolean(pdfSource) &&
+    (enableLivePdfRender || publication.docType === 'book');
 
   useEffect(() => {
-    if (!shouldRenderPdf || !publication.pdfUrl || pdfRendered) return;
-    let cancelled = false;
+    if (!shouldRenderPdf || !pdfSource) return;
+    const controller = new AbortController();
+    const state: { loadingTask: PDFDocumentLoadingTask | null; render: RenderTask | null } = {
+      loadingTask: null,
+      render: null
+    };
 
-    void pdfThumbnailQueue.enqueue(async () => {
-      if (cancelled) return;
-      const proxiedUrl = buildPdfProxyUrl(publication.pdfUrl!);
-      let loadingTask = pdfjsLib.getDocument({
-        url: proxiedUrl,
-        rangeChunkSize: 65536,
-        disableAutoFetch: true,
-        disableStream: false
+    void pdfThumbnailQueue
+      .enqueue(async () => {
+        if (controller.signal.aborted) return;
+        const pdfjs = await loadPdfjs();
+        if (controller.signal.aborted) return;
+
+        const loadingTask = openPdfDocument(pdfjs, buildPdfProxyUrl(pdfSource));
+        state.loadingTask = loadingTask;
+        try {
+          const doc = await loadingTask.promise;
+          if (controller.signal.aborted) return;
+          const page = await doc.getPage(1);
+          const canvas = canvasRef.current;
+          if (controller.signal.aborted || !canvas) return;
+
+          // Crisp on retina, but never more than 2x and never wider than the card needs.
+          const dpr = Math.min(window.devicePixelRatio || 1, 2);
+          const cssWidth = containerRef.current?.clientWidth || 220;
+          const base = page.getViewport({ scale: 1 });
+          const scale = Math.min(3, (cssWidth * dpr) / base.width);
+          const viewport = page.getViewport({ scale });
+          canvas.width = Math.floor(viewport.width);
+          canvas.height = Math.floor(viewport.height);
+          const ctx = canvas.getContext('2d');
+          if (!ctx) throw new Error('Canvas 2D context unavailable');
+
+          state.render = page.render({
+            canvasContext: ctx,
+            canvas,
+            viewport,
+            background: '#FBF9F5'
+          });
+          await state.render.promise;
+          if (!controller.signal.aborted) setPdfState('rendered');
+        } finally {
+          await loadingTask.destroy().catch(() => undefined);
+          state.loadingTask = null;
+        }
+      }, controller.signal)
+      .catch(() => {
+        if (!controller.signal.aborted) setPdfState('failed');
       });
 
-      let pdfDoc;
-      try {
-        pdfDoc = await loadingTask.promise;
-      } catch {
-        // Fallback direct URL if local Vite dev has no /api/pdf-proxy and origin allows CORS
-        if (publication.pdfUrl!.includes('books.scielo.org')) {
-          loadingTask = pdfjsLib.getDocument({
-            url: publication.pdfUrl!.replace(/^http:\/\//i, 'https://'),
-            rangeChunkSize: 65536,
-            disableAutoFetch: true
-          });
-          pdfDoc = await loadingTask.promise;
-        } else {
-          return;
-        }
-      }
-
-      if (cancelled) {
-        await loadingTask.destroy();
-        return;
-      }
-
-      const page = await pdfDoc.getPage(1);
-      const viewport = page.getViewport({ scale: 0.45 });
-      const canvas = canvasRef.current;
-      if (!canvas || cancelled) {
-        await loadingTask.destroy();
-        return;
-      }
-
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        await page.render({ canvasContext: ctx, viewport, canvas }).promise;
-        if (!cancelled) setPdfRendered(true);
-      }
-      await loadingTask.destroy();
-    });
-
     return () => {
-      cancelled = true;
+      controller.abort();
+      state.render?.cancel();
+      void state.loadingTask?.destroy().catch(() => undefined);
     };
-  }, [shouldRenderPdf, publication.pdfUrl, pdfRendered]);
+  }, [shouldRenderPdf, pdfSource]);
 
-  const coverImgSrc = publication.coverUrl ? buildCoverProxyUrl(publication.coverUrl) : undefined;
+  const pdfActive = pdfState === 'rendered';
+  const showTypographic = !showCover && !pdfActive;
 
   return (
     <div
@@ -114,27 +162,33 @@ export function PdfCoverThumbnail({
         backgroundColor: 'var(--bg-surface)'
       }}
     >
-      {/* 1. Rendered PDF Page 1 Canvas (when active) */}
-      <canvas
-        ref={canvasRef}
-        className={`h-full w-full object-cover transition-opacity duration-300 ${
-          pdfRendered ? 'opacity-100' : 'opacity-0'
-        }`}
-      />
-
-      {/* 2. Official SciELO Cover Thumbnail (when available and PDF canvas not yet overriding) */}
-      {!pdfRendered && coverImgSrc && !imgFailed && (
+      {/* 1. Real cover image (decorative: the title is already visible next to it) */}
+      {showCover && coverSrc && (
         <img
-          src={coverImgSrc}
-          alt={publication.title}
+          src={coverSrc}
+          alt=""
+          width={COVER_WIDTH}
+          height={COVER_HEIGHT}
           loading="lazy"
-          onError={() => setImgFailed(true)}
-          className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+          decoding="async"
+          onError={() => setCoverFailed(true)}
+          className="absolute inset-0 h-full w-full object-cover motion-safe:transition-transform motion-safe:duration-500 motion-safe:group-hover:scale-[1.03]"
         />
       )}
 
-      {/* 3. Dynamic Editorial Cover Fallback */}
-      {!pdfRendered && (!coverImgSrc || imgFailed) && (
+      {/* 2. Page 1 of the PDF, rendered lazily and only when there is no cover */}
+      {!showCover && Boolean(pdfSource) && (near || pdfActive) && pdfState !== 'failed' && (
+        <canvas
+          ref={canvasRef}
+          aria-hidden="true"
+          className={`h-full w-full object-cover motion-safe:transition-opacity motion-safe:duration-300 ${
+            pdfActive ? 'opacity-100' : 'opacity-0'
+          }`}
+        />
+      )}
+
+      {/* 3. Editorial typographic cover (always safe) */}
+      {showTypographic && (
         <div
           className="absolute inset-0 flex flex-col justify-between p-3.5"
           style={{
@@ -150,7 +204,7 @@ export function PdfCoverThumbnail({
               {publication.publisher}
             </span>
             {publication.year && (
-              <span className="font-code text-[10px]" style={{ color: 'var(--text-muted)' }}>
+              <span className="font-code text-[10px]" style={{ color: 'var(--text-secondary)' }}>
                 {publication.year}
               </span>
             )}
@@ -166,10 +220,8 @@ export function PdfCoverThumbnail({
             </p>
           </div>
 
-          <div className="flex items-center justify-between text-[10px]" style={{ color: 'var(--text-muted)' }}>
-            <span className="truncate">
-              {publication.authors[0] || publication.collection}
-            </span>
+          <div className="flex items-center justify-between text-[10px]" style={{ color: 'var(--text-secondary)' }}>
+            <span className="truncate">{publication.authors?.[0] || publication.collection}</span>
             <span className="font-code uppercase">{publication.language}</span>
           </div>
         </div>

@@ -1,11 +1,13 @@
-import { Calendar, Globe, Languages, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { useId } from 'react';
+import { BookCheck, SlidersHorizontal } from 'lucide-react';
 import type { CatalogFilters, CatalogStats, LanguageCode } from '../types/publication';
 
 interface QuickFilterBarProps {
   stats: CatalogStats;
   filters: CatalogFilters;
-  onToggleLanguage: (lang: LanguageCode) => void;
-  onToggleCountry: (country: string) => void;
+  /** Replaces the whole selection; an empty array means "Todos". */
+  onSetLanguages: (languages: LanguageCode[]) => void;
+  onSetCountries: (countries: string[]) => void;
   onYearChange: (from: number | null, to: number | null) => void;
   onToggleOnlyPdf: () => void;
   onOpenAllFilters: () => void;
@@ -13,166 +15,129 @@ interface QuickFilterBarProps {
   onToggleSidebar: () => void;
 }
 
+const YEAR_PRESETS = [
+  { label: '2020 – hoy', from: 2020, to: null },
+  { label: '2015 – 2019', from: 2015, to: 2019 },
+  { label: 'Hasta 2014', from: null, to: 2014 }
+] as const;
+
+const MULTI = '__multi__';
+
+/** The select shows one value; when the sidebar selected several it shows "Varios (n)". */
+function selectValue(values: string[]): string {
+  if (values.length === 0) return '';
+  return values.length === 1 ? values[0] : MULTI;
+}
+
 export function QuickFilterBar({
   stats,
   filters,
-  onToggleLanguage,
-  onToggleCountry,
+  onSetLanguages,
+  onSetCountries,
   onYearChange,
   onToggleOnlyPdf,
   onOpenAllFilters,
   showSidebar,
   onToggleSidebar
 }: QuickFilterBarProps) {
-  const selectedLang = filters.languages[0] || '';
-  const selectedCountry = filters.countries[0] || '';
+  const id = useId();
 
   return (
     <div
-      className="mb-4 flex flex-wrap items-center justify-between gap-2.5 rounded-md border px-3 py-2.5 backdrop-blur-xs"
-      style={{
-        backgroundColor: 'var(--bg-card)',
-        borderColor: 'var(--border-hairline)'
-      }}
+      className="mb-4 flex flex-col gap-2 rounded-md border px-3 py-2.5 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between lg:gap-x-3"
+      style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-hairline)' }}
+      role="group"
+      aria-label="Filtros rápidos"
     >
-      <div className="flex flex-wrap items-center gap-2">
-        {/* Idioma */}
-        <label className="relative inline-flex items-center">
-          <Languages
-            className="pointer-events-none absolute left-2.5 h-3.5 w-3.5"
-            style={{ color: 'var(--accent-upn)' }}
-          />
+      {/* Phones: two selects side by side, then ONE horizontally scrollable row of chips. */}
+      <div className="grid min-w-0 grid-cols-2 gap-2 sm:flex sm:flex-1 sm:flex-wrap sm:items-center">
+        <div className="min-w-0 sm:min-w-[9rem] sm:flex-none">
+          <label htmlFor={`${id}-lang`} className="sr-only">
+            Idioma
+          </label>
           <select
-            value={selectedLang}
-            onChange={(e) => {
-              const v = e.target.value as LanguageCode | '';
-              if (!v) {
-                if (selectedLang) onToggleLanguage(selectedLang);
-              } else if (v !== selectedLang) {
-                if (selectedLang) onToggleLanguage(selectedLang);
-                onToggleLanguage(v);
-              }
+            id={`${id}-lang`}
+            className="field w-full"
+            value={selectValue(filters.languages)}
+            onChange={(event) => {
+              const value = event.target.value;
+              if (value === MULTI) return;
+              onSetLanguages(value ? [value as LanguageCode] : []);
             }}
-            className="h-8 rounded border pl-8 pr-6 text-xs font-medium outline-none transition-colors"
-            style={{
-              borderColor: selectedLang ? 'var(--accent-upn)' : 'var(--border-hairline)',
-              backgroundColor: selectedLang ? 'var(--accent-crimson-soft)' : 'var(--bg-surface)',
-              color: 'var(--text-primary)'
-            }}
-            aria-label="Filtrar por idioma"
           >
-            <option value="">Idioma: Todos</option>
+            <option value="">Idioma: todos</option>
+            {filters.languages.length > 1 ? (
+              <option value={MULTI}>Idioma: varios ({filters.languages.length})</option>
+            ) : null}
             {stats.languages.map((l) => (
               <option key={l.value} value={l.value}>
                 {l.label} ({l.count})
               </option>
             ))}
           </select>
-        </label>
+        </div>
 
-        {/* País */}
-        <label className="relative inline-flex items-center">
-          <Globe
-            className="pointer-events-none absolute left-2.5 h-3.5 w-3.5"
-            style={{ color: 'var(--accent-jade)' }}
-          />
+        <div className="min-w-0 sm:min-w-[9rem] sm:flex-none">
+          <label htmlFor={`${id}-country`} className="sr-only">
+            País
+          </label>
           <select
-            value={selectedCountry}
-            onChange={(e) => {
-              const v = e.target.value;
-              if (!v) {
-                if (selectedCountry) onToggleCountry(selectedCountry);
-              } else if (v !== selectedCountry) {
-                if (selectedCountry) onToggleCountry(selectedCountry);
-                onToggleCountry(v);
-              }
+            id={`${id}-country`}
+            className="field w-full"
+            value={selectValue(filters.countries)}
+            onChange={(event) => {
+              const value = event.target.value;
+              if (value === MULTI) return;
+              onSetCountries(value ? [value] : []);
             }}
-            className="h-8 rounded border pl-8 pr-6 text-xs font-medium outline-none transition-colors"
-            style={{
-              borderColor: selectedCountry ? 'var(--accent-jade)' : 'var(--border-hairline)',
-              backgroundColor: selectedCountry ? 'rgba(46, 139, 116, 0.11)' : 'var(--bg-surface)',
-              color: 'var(--text-primary)'
-            }}
-            aria-label="Filtrar por país"
           >
-            <option value="">País: Todos</option>
+            <option value="">País: todos</option>
+            {filters.countries.length > 1 ? (
+              <option value={MULTI}>País: varios ({filters.countries.length})</option>
+            ) : null}
             {stats.countries.map((c) => (
               <option key={c.value} value={c.value}>
                 {c.label} ({c.count})
               </option>
             ))}
           </select>
-        </label>
+        </div>
 
-        {/* Fecha / Año rápido */}
-        <div className="inline-flex items-center gap-1">
-          <Calendar className="hidden h-3.5 w-3.5 sm:inline" style={{ color: 'var(--accent-ochre)' }} />
-          {[
-            { label: '2020–Hoy', from: 2020, to: null },
-            { label: '2015–19', from: 2015, to: 2019 },
-            { label: '≤ 2014', from: null, to: 2014 }
-          ].map((preset) => {
+      </div>
+
+      <div className="quickbar-scroll -mx-3 flex items-center gap-2 overflow-x-auto px-3 pb-0.5 lg:mx-0 lg:flex-wrap lg:overflow-visible lg:px-0 lg:pb-0">
+        <div className="flex shrink-0 items-center gap-1.5" role="group" aria-label="Año de publicación">
+          {YEAR_PRESETS.map((preset) => {
             const active = filters.yearFrom === preset.from && filters.yearTo === preset.to;
             return (
               <button
                 key={preset.label}
                 type="button"
-                onClick={() => onYearChange(active ? null : preset.from, active ? null : preset.to)}
-                className="h-8 rounded border px-2.5 font-code text-[11px] font-medium transition-colors"
-                style={{
-                  borderColor: active ? 'var(--accent-upn)' : 'var(--border-hairline)',
-                  backgroundColor: active ? 'var(--accent-crimson-soft)' : 'var(--bg-surface)',
-                  color: active ? 'var(--accent-upn)' : 'var(--text-secondary)'
-                }}
+                className="chip shrink-0 whitespace-nowrap"
+                aria-pressed={active}
+                onClick={() => (active ? onYearChange(null, null) : onYearChange(preset.from, preset.to))}
               >
                 {preset.label}
               </button>
             );
           })}
         </div>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={onToggleOnlyPdf}
-          className="inline-flex h-8 items-center gap-1.5 rounded border px-2.5 text-xs font-medium transition-colors"
-          style={{
-            borderColor: filters.onlyWithPdf ? 'var(--accent-jade)' : 'var(--border-hairline)',
-            backgroundColor: filters.onlyWithPdf ? 'rgba(46, 139, 116, 0.12)' : 'var(--bg-surface)',
-            color: filters.onlyWithPdf ? 'var(--accent-jade)' : 'var(--text-secondary)'
-          }}
-        >
-          <Sparkles className="h-3.5 w-3.5" />
-          <span>Lectura directa ({stats.withPdf})</span>
+        <button type="button" className="chip shrink-0" aria-pressed={filters.onlyWithPdf} onClick={onToggleOnlyPdf}>
+          <BookCheck className="h-3.5 w-3.5" aria-hidden="true" />
+          <span>Solo texto completo</span>
         </button>
 
-        {/* Desktop toggle sidebar vs Mobile drawer */}
         <button
           type="button"
+          className="chip hidden shrink-0 lg:inline-flex"
+          aria-pressed={showSidebar}
           onClick={onToggleSidebar}
-          className="hidden h-8 items-center gap-1.5 rounded border px-2.5 text-xs font-medium transition-colors lg:inline-flex"
-          style={{
-            borderColor: showSidebar ? 'var(--accent-upn)' : 'var(--border-hairline)',
-            backgroundColor: showSidebar ? 'var(--accent-crimson-soft)' : 'var(--bg-surface)',
-            color: showSidebar ? 'var(--accent-upn)' : 'var(--text-secondary)'
-          }}
         >
-          <SlidersHorizontal className="h-3.5 w-3.5" />
-          <span>{showSidebar ? 'Ocultar áreas' : 'Áreas y colecciones'}</span>
+          <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+          <span>Más filtros</span>
         </button>
-
-        <button
-          type="button"
-          onClick={onOpenAllFilters}
-          className="inline-flex h-8 items-center gap-1.5 rounded border px-2.5 text-xs font-medium lg:hidden"
-          style={{
-            borderColor: 'var(--border-hairline)',
-            backgroundColor: 'var(--bg-surface)',
-            color: 'var(--text-primary)'
-          }}
-        >
-          <SlidersHorizontal className="h-3.5 w-3.5" />
+        <button type="button" className="chip shrink-0 lg:hidden" onClick={onOpenAllFilters}>
+          <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
           <span>Más filtros</span>
         </button>
       </div>

@@ -1,24 +1,25 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { Bookmark, BookOpen, Check, Copy, ExternalLink, Quote, StickyNote, Tag } from 'lucide-react';
+import { doiUrl, formatCitation } from '../lib/citations';
 import {
-  Bookmark,
-  BookOpen,
-  Check,
-  Copy,
-  ExternalLink,
-  Quote,
-  StickyNote,
-  Tag,
-  X
-} from 'lucide-react';
-import { formatCitation } from '../lib/citations';
-import { OECD_AREA_MAP } from '../lib/taxonomy';
+  DOCTYPE_LABELS,
+  LANGUAGE_LABELS,
+  areaFillColor,
+  areaTextColor,
+  getArea,
+  langAttr
+} from '../lib/publication';
+import { safeExternalUrl, safeHexColor } from '../lib/safeUrl';
 import type { CitationFormat, Publication, Shelf, ShelfItem } from '../types/publication';
+import { Modal } from './Modal';
 import { PdfCoverThumbnail } from './PdfCoverThumbnail';
 
 interface PreviewDrawerProps {
-  publication: Publication | null;
+  /** The parent mounts the drawer with `key={publication.id}`, so all local state resets per work. */
+  publication: Publication;
   shelves: Shelf[];
   publicationShelfItems: ShelfItem[];
+  resumePage?: number;
   onClose: () => void;
   onOpenReader: (pub: Publication, initialPage?: number) => void;
   onToggleShelf: (shelfId: string, pub: Publication) => void;
@@ -32,332 +33,286 @@ const CITATION_TABS: Array<{ id: CitationFormat; label: string }> = [
   { id: 'bibtex', label: 'BibTeX' }
 ];
 
+type CopyState = 'idle' | 'ok' | 'error';
+
 export function PreviewDrawer({
   publication,
   shelves,
   publicationShelfItems,
+  resumePage,
   onClose,
   onOpenReader,
   onToggleShelf,
   onSaveNote,
   onKeywordClick
 }: PreviewDrawerProps) {
+  const uid = useId();
+  const titleId = `${uid}-title`;
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
   const [citationFormat, setCitationFormat] = useState<CitationFormat>('apa7');
-  const [copied, setCopied] = useState(false);
-  const [activeShelfId, setActiveShelfId] = useState<string>('favorites');
-  const [noteDraft, setNoteDraft] = useState('');
+  const [copyState, setCopyState] = useState<CopyState>('idle');
+  const [activeShelfId, setActiveShelfId] = useState<string>(
+    () => publicationShelfItems[0]?.shelfId || shelves[0]?.id || 'favorites'
+  );
+  // The draft is initialised once and only replaced by explicit user actions (B9): later
+  // re-renders caused by unrelated shelf/progress updates never touch what the visitor typed.
+  const [noteDraft, setNoteDraft] = useState<string>(
+    () => publicationShelfItems.find((i) => i.shelfId === (publicationShelfItems[0]?.shelfId || shelves[0]?.id))?.note ?? ''
+  );
   const [noteSaved, setNoteSaved] = useState(false);
 
+  useEffect(() => {
+    if (copyState === 'idle') return;
+    const timer = setTimeout(() => setCopyState('idle'), 2500);
+    return () => clearTimeout(timer);
+  }, [copyState]);
+
+  useEffect(() => {
+    if (!noteSaved) return;
+    const timer = setTimeout(() => setNoteSaved(false), 2000);
+    return () => clearTimeout(timer);
+  }, [noteSaved]);
+
+  const area = getArea(publication.oecdArea);
   const memberShelfIds = new Set(publicationShelfItems.map((i) => i.shelfId));
-
-  useEffect(() => {
-    if (!publication) return;
-    const firstSaved = publicationShelfItems[0]?.shelfId || shelves[0]?.id || 'favorites';
-    setActiveShelfId(firstSaved);
-    const existing = publicationShelfItems.find((i) => i.shelfId === firstSaved);
-    setNoteDraft(existing?.note || '');
-    setCopied(false);
-    setNoteSaved(false);
-  }, [publication?.id]);
-
-  useEffect(() => {
-    if (!publication) return;
-    const existing = publicationShelfItems.find((i) => i.shelfId === activeShelfId);
-    setNoteDraft(existing?.note || '');
-  }, [activeShelfId, publicationShelfItems, publication]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && publication) onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [publication, onClose]);
-
-  if (!publication) return null;
-
-  const area = OECD_AREA_MAP[publication.oecdArea];
+  const noteFor = (shelfId: string) => publicationShelfItems.find((i) => i.shelfId === shelfId)?.note ?? '';
   const citationText = formatCitation(publication, citationFormat);
-  const resumePage = publicationShelfItems.find((i) => i.readingPage > 1)?.readingPage;
+  const lang = langAttr(publication);
+  const hasText = Boolean(publication.pdfUrl);
+  const scieloHref = safeExternalUrl(publication.scieloUrl);
+  const doiHref = safeExternalUrl(doiUrl(publication.doi));
+  const activeTab = CITATION_TABS.findIndex((t) => t.id === citationFormat);
 
   const handleCopyCitation = async () => {
     try {
       await navigator.clipboard.writeText(citationText);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setCopyState('ok');
     } catch {
-      // Clipboard fallback ignored
+      setCopyState('error');
     }
   };
 
-  const handleSaveNote = () => {
-    onSaveNote(activeShelfId, publication, noteDraft);
-    setNoteSaved(true);
-    setTimeout(() => setNoteSaved(false), 2000);
+  const handleTabKey = (event: React.KeyboardEvent, index: number) => {
+    let next = index;
+    if (event.key === 'ArrowRight') next = (index + 1) % CITATION_TABS.length;
+    else if (event.key === 'ArrowLeft') next = (index - 1 + CITATION_TABS.length) % CITATION_TABS.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = CITATION_TABS.length - 1;
+    else return;
+    event.preventDefault();
+    setCitationFormat(CITATION_TABS[next].id);
+    setCopyState('idle');
+    tabRefs.current[next]?.focus();
+  };
+
+  const handleToggleShelf = (shelf: Shelf, inShelf: boolean) => {
+    onToggleShelf(shelf.id, publication);
+    if (!inShelf) {
+      setActiveShelfId(shelf.id);
+      setNoteDraft('');
+    } else if (activeShelfId === shelf.id) {
+      setNoteDraft('');
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-40 flex justify-end">
-      {/* Backdrop */}
+    <Modal variant="side" labelledBy={titleId} onClose={onClose}>
       <div
-        className="fixed inset-0 bg-black/40 backdrop-blur-[2px] transition-opacity"
-        onClick={onClose}
-      />
-
-      {/* Drawer Panel */}
-      <aside
-        className="relative z-10 flex h-full w-full max-w-2xl flex-col border-l shadow-2xl"
+        className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-2.5 sm:px-5"
         style={{
-          backgroundColor: 'var(--bg-page)',
-          borderColor: 'var(--border-strong)'
+          borderColor: 'var(--border-hairline)',
+          backgroundColor: 'var(--bg-surface)',
+          paddingTop: 'max(0.625rem, env(safe-area-inset-top))'
         }}
-        role="dialog"
-        aria-label={`Vista previa de ${publication.title}`}
       >
-        {/* Top bar */}
-        <div
-          className="flex items-center justify-between border-b px-5 py-3.5"
-          style={{ borderColor: 'var(--border-hairline)', backgroundColor: 'var(--bg-surface)' }}
-        >
-          <div className="flex items-center gap-2 text-xs font-medium">
-            <span
-              className="h-2.5 w-2.5 rounded-full"
-              style={{ backgroundColor: area.accent }}
-            />
-            <span style={{ color: area.accent }}>{publication.oecdAreaLabel}</span>
-            {publication.oecdSubarea && (
-              <span style={{ color: 'var(--text-muted)' }}>· {publication.oecdSubarea}</span>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex h-8 w-8 items-center justify-center rounded border transition-colors"
-            style={{ borderColor: 'var(--border-hairline)', backgroundColor: 'var(--bg-card)' }}
-            aria-label="Cerrar vista previa"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+        <p className="micro flex min-w-0 items-center gap-2" style={{ color: areaTextColor(area.id) }}>
+          <span
+            className="h-2.5 w-2.5 shrink-0 rounded-full"
+            style={{ backgroundColor: areaFillColor(area.id) }}
+            aria-hidden="true"
+          />
+          <span className="truncate">{area.label}</span>
+        </p>
+        <button type="button" onClick={onClose} className="btn btn-quiet btn-sm">
+          Cerrar
+        </button>
+      </div>
 
-        {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto p-5 sm:p-6">
-          {/* Header Block */}
-          <div className="flex flex-col gap-5 sm:flex-row">
-            <div className="w-36 shrink-0 sm:w-40">
-              <PdfCoverThumbnail
-                publication={publication}
-                enableLivePdfRender={Boolean(publication.pdfUrl)}
-                className="aspect-[3/4] w-full rounded-[4px] shadow-sm"
-              />
+      <div className="modal-body p-4 sm:p-6">
+        <div className="flex flex-col gap-5 sm:flex-row">
+          <div className="w-32 shrink-0 sm:w-40">
+            <PdfCoverThumbnail
+              publication={publication}
+              enableLivePdfRender={hasText}
+              className="aspect-[3/4] w-full rounded-[4px] shadow-sm"
+            />
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              {[
+                DOCTYPE_LABELS[publication.docType],
+                publication.country,
+                LANGUAGE_LABELS[publication.language],
+                publication.year
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </p>
+
+            <h2
+              id={titleId}
+              lang={lang}
+              className="font-editorial mt-1 text-xl font-semibold leading-snug sm:text-2xl"
+            >
+              {publication.title}
+            </h2>
+
+            <p className="mt-2 text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+              {publication.authors.length > 0 ? publication.authors.join(' · ') : publication.publisher}
+            </p>
+            <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>
+              Editorial: <span style={{ color: 'var(--text-secondary)' }}>{publication.publisher}</span>
+              {publication.citedByCount ? ` · ${publication.citedByCount} citas` : ''}
+            </p>
+
+            <div className="font-code mt-3 flex flex-wrap gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
+              {doiHref && publication.doi ? (
+                <a
+                  href={doiHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded border px-2 py-1 hover:underline"
+                  style={{ borderColor: 'var(--border-hairline)', backgroundColor: 'var(--bg-surface)' }}
+                >
+                  DOI: {publication.doi.replace(/^https?:\/\/(dx\.)?doi\.org\//i, '')}
+                </a>
+              ) : null}
+              {publication.isbn ? (
+                <span
+                  className="rounded border px-2 py-1"
+                  style={{ borderColor: 'var(--border-hairline)', backgroundColor: 'var(--bg-surface)' }}
+                >
+                  ISBN: {publication.isbn}
+                </span>
+              ) : null}
             </div>
 
-            <div className="min-w-0 flex-1">
-              <div className="mb-2 flex flex-wrap items-center gap-1.5 text-[11px]">
-                <span
-                  className="rounded px-2 py-0.5 font-semibold uppercase tracking-wider"
-                  style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-secondary)' }}
-                >
-                  {publication.collection}
-                </span>
-                {publication.country && (
-                  <span
-                    className="rounded px-2 py-0.5 font-medium"
-                    style={{ backgroundColor: 'rgba(46, 139, 116, 0.12)', color: 'var(--accent-jade)' }}
-                  >
-                    {publication.country}
-                  </span>
-                )}
-                {publication.year && (
-                  <span
-                    className="rounded px-2 py-0.5 font-code"
-                    style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-muted)' }}
-                  >
-                    {publication.year}
-                  </span>
-                )}
-                <span
-                  className="rounded px-2 py-0.5 font-code uppercase"
-                  style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-muted)' }}
-                >
-                  {publication.language}
-                </span>
-                {publication.citedByCount ? (
-                  <span
-                    className="inline-flex items-center gap-1 rounded px-2 py-0.5 font-code"
-                    style={{ backgroundColor: 'rgba(184, 134, 59, 0.14)', color: 'var(--accent-ochre)' }}
-                  >
-                    <Quote className="h-3 w-3" /> {publication.citedByCount} citas
-                  </span>
-                ) : null}
-              </div>
-
-              <h2 className="font-editorial text-xl font-semibold leading-snug sm:text-2xl">
-                {publication.title}
-              </h2>
-
-              <p className="mt-2 text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
-                {publication.authors.length > 0
-                  ? publication.authors.join(' · ')
-                  : publication.publisher}
-              </p>
-
-              <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>
-                Editorial / Fuente: <strong style={{ color: 'var(--text-secondary)' }}>{publication.publisher}</strong>
-              </p>
-
-              {/* Identifiers */}
-              <div className="mt-3 flex flex-wrap gap-2 font-code text-[11px]" style={{ color: 'var(--text-muted)' }}>
-                {publication.doi && (
-                  <a
-                    href={`https://doi.org/${publication.doi}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="rounded border px-2 py-0.5 hover:underline"
-                    style={{ borderColor: 'var(--border-hairline)', backgroundColor: 'var(--bg-surface)' }}
-                  >
-                    DOI: {publication.doi}
-                  </a>
-                )}
-                {publication.isbn && (
-                  <span
-                    className="rounded border px-2 py-0.5"
-                    style={{ borderColor: 'var(--border-hairline)', backgroundColor: 'var(--bg-surface)' }}
-                  >
-                    ISBN: {publication.isbn}
-                  </span>
-                )}
-                {publication.oaiIdentifier && (
-                  <span
-                    className="rounded border px-2 py-0.5"
-                    style={{ borderColor: 'var(--border-hairline)', backgroundColor: 'var(--bg-surface)' }}
-                  >
-                    ID: {publication.oaiIdentifier}
-                  </span>
-                )}
-              </div>
-
-              {/* Primary Reader CTAs */}
-              <div className="mt-4 flex flex-wrap gap-2">
+            <div className="mt-4 flex flex-wrap gap-2">
+              {hasText ? (
                 <button
                   type="button"
                   onClick={() => onOpenReader(publication, resumePage)}
-                  className="inline-flex items-center gap-2 rounded px-4 py-2 text-sm font-semibold shadow-xs transition-opacity hover:opacity-90"
-                  style={{
-                    backgroundColor: 'var(--accent-crimson)',
-                    color: '#FAF9F6'
-                  }}
+                  className="btn btn-primary"
                 >
-                  <BookOpen className="h-4 w-4" />
-                  <span>
-                    {resumePage ? `Continuar lectura (pág. ${resumePage})` : 'Leer aquí (sin descargas)'}
-                  </span>
+                  <BookOpen className="h-4 w-4" aria-hidden="true" />
+                  <span>{resumePage && resumePage > 1 ? `Continuar en la página ${resumePage}` : 'Leer'}</span>
                 </button>
-
+              ) : null}
+              {scieloHref ? (
                 <a
-                  href={publication.scieloUrl}
+                  href={scieloHref}
                   target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1.5 rounded border px-3.5 py-2 text-xs font-medium transition-colors"
-                  style={{
-                    borderColor: 'var(--border-hairline)',
-                    backgroundColor: 'var(--bg-surface)',
-                    color: 'var(--text-primary)'
-                  }}
+                  rel="noopener noreferrer"
+                  className={`btn ${hasText ? 'btn-quiet' : 'btn-primary'}`}
                 >
-                  <ExternalLink className="h-3.5 w-3.5" />
+                  <ExternalLink className="h-4 w-4" aria-hidden="true" />
                   <span>Abrir en SciELO</span>
                 </a>
-              </div>
+              ) : null}
+            </div>
+            {!hasText ? (
+              <p className="mt-2 text-sm" style={{ color: 'var(--text-muted)' }}>
+                Esta obra no tiene texto completo disponible para leer aquí. Puedes consultarla en el sitio de origen.
+              </p>
+            ) : null}
+          </div>
+        </div>
+
+        <section className="mt-6 border-t pt-5" style={{ borderColor: 'var(--border-hairline)' }}>
+          <h3 className="micro mb-2">Resumen</h3>
+          <p
+            lang={lang}
+            className="max-w-[65ch] text-[15px] leading-relaxed"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            {publication.abstract || 'Esta obra no incluye resumen. Consulta la ficha original para ver el índice completo.'}
+          </p>
+        </section>
+
+        {publication.keywords.length > 0 ? (
+          <section className="mt-5">
+            <h3 className="micro mb-2 flex items-center gap-1.5">
+              <Tag className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>Palabras clave</span>
+            </h3>
+            <div className="flex flex-wrap gap-1.5">
+              {publication.keywords.map((kw) => (
+                <button
+                  key={kw}
+                  type="button"
+                  className="chip"
+                  onClick={() => {
+                    onKeywordClick(kw);
+                    onClose();
+                  }}
+                >
+                  {kw}
+                </button>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        <section
+          className="mt-6 rounded-md border p-4"
+          style={{ borderColor: 'var(--border-hairline)', backgroundColor: 'var(--bg-surface)' }}
+          aria-labelledby={`${uid}-cite`}
+        >
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h3 id={`${uid}-cite`} className="micro flex items-center gap-1.5">
+              <Quote className="h-3.5 w-3.5" style={{ color: 'var(--accent-primary)' }} aria-hidden="true" />
+              <span>Citar esta obra</span>
+            </h3>
+
+            <div role="tablist" aria-label="Formato de cita" className="flex items-center gap-1">
+              {CITATION_TABS.map((tab, index) => {
+                const active = citationFormat === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    ref={(el) => {
+                      tabRefs.current[index] = el;
+                    }}
+                    type="button"
+                    role="tab"
+                    id={`${uid}-tab-${tab.id}`}
+                    aria-selected={active}
+                    aria-controls={`${uid}-panel`}
+                    tabIndex={active ? 0 : -1}
+                    onClick={() => {
+                      setCitationFormat(tab.id);
+                      setCopyState('idle');
+                    }}
+                    onKeyDown={(event) => handleTabKey(event, index)}
+                    className={`btn btn-sm ${active ? 'btn-primary' : 'btn-ghost'}`}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          {/* Abstract */}
-          <section className="mt-6 border-t pt-5" style={{ borderColor: 'var(--border-hairline)' }}>
-            <h3
-              className="mb-2 text-xs font-semibold uppercase tracking-wider"
-              style={{ color: 'var(--text-muted)' }}
-            >
-              Resumen y Alcance Editorial
-            </h3>
-            <p
-              className="max-w-[65ch] text-sm leading-relaxed"
-              style={{ color: 'var(--text-secondary)' }}
-            >
-              {publication.abstract ||
-                'Sin resumen disponible en el registro Dublin Core. Consulta la ficha original en SciELO o abre el documento PDF para inspeccionar el índice completo.'}
-            </p>
-          </section>
-
-          {/* Keywords */}
-          {publication.keywords.length > 0 && (
-            <section className="mt-5">
-              <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
-                <Tag className="h-3.5 w-3.5" />
-                <span>Palabras Clave</span>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {publication.keywords.map((kw) => (
-                  <button
-                    key={kw}
-                    type="button"
-                    onClick={() => {
-                      onKeywordClick(kw);
-                      onClose();
-                    }}
-                    className="rounded border px-2.5 py-1 text-xs transition-colors hover:opacity-80"
-                    style={{
-                      borderColor: 'var(--border-hairline)',
-                      backgroundColor: 'var(--bg-surface)',
-                      color: 'var(--text-secondary)'
-                    }}
-                  >
-                    {kw}
-                  </button>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* 1-Click Citation Generator */}
-          <section
-            className="mt-6 rounded border p-4"
-            style={{
-              borderColor: 'var(--border-hairline)',
-              backgroundColor: 'var(--bg-surface)'
-            }}
+          <div
+            role="tabpanel"
+            id={`${uid}-panel`}
+            aria-labelledby={`${uid}-tab-${CITATION_TABS[activeTab]?.id ?? 'apa7'}`}
+            tabIndex={0}
           >
-            <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider">
-                <Quote className="h-3.5 w-3.5" style={{ color: 'var(--accent-crimson)' }} />
-                <span>Citación en 1 clic</span>
-              </div>
-
-              <div className="flex items-center gap-1">
-                {CITATION_TABS.map((tab) => {
-                  const active = citationFormat === tab.id;
-                  return (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      onClick={() => {
-                        setCitationFormat(tab.id);
-                        setCopied(false);
-                      }}
-                      className="rounded px-2.5 py-1 text-xs font-medium transition-colors"
-                      style={{
-                        backgroundColor: active ? 'var(--accent-crimson)' : 'transparent',
-                        color: active ? '#F8F7F4' : 'var(--text-secondary)'
-                      }}
-                    >
-                      {tab.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
             <pre
+              lang={citationFormat === 'bibtex' ? undefined : lang}
               className={`overflow-x-auto rounded border p-3 text-xs leading-relaxed whitespace-pre-wrap ${
                 citationFormat === 'bibtex' ? 'font-code' : 'font-sans'
               }`}
@@ -369,119 +324,99 @@ export function PreviewDrawer({
             >
               {citationText}
             </pre>
+          </div>
 
-            <div className="mt-2.5 flex justify-end">
-              <button
-                type="button"
-                onClick={handleCopyCitation}
-                className="inline-flex items-center gap-1.5 rounded border px-3 py-1.5 text-xs font-medium transition-colors"
-                style={{
-                  borderColor: copied ? 'var(--accent-moss)' : 'var(--border-hairline)',
-                  backgroundColor: copied ? 'rgba(77, 107, 83, 0.14)' : 'var(--bg-card)',
-                  color: copied ? 'var(--accent-moss)' : 'var(--text-primary)'
-                }}
-              >
-                {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                <span>{copied ? 'Cita copiada' : `Copiar cita ${citationFormat.toUpperCase()}`}</span>
-              </button>
-            </div>
-          </section>
+          <div className="mt-3 flex items-center justify-end gap-3">
+            <p role="status" className="text-xs" style={{ color: copyState === 'error' ? 'var(--danger)' : 'var(--accent-moss)' }}>
+              {copyState === 'ok' ? 'Cita copiada' : copyState === 'error' ? 'No se pudo copiar. Selecciona el texto a mano.' : ''}
+            </p>
+            <button type="button" onClick={handleCopyCitation} className="btn btn-quiet btn-sm">
+              {copyState === 'ok' ? <Check className="h-4 w-4" aria-hidden="true" /> : <Copy className="h-4 w-4" aria-hidden="true" />}
+              <span>Copiar cita</span>
+            </button>
+          </div>
+        </section>
 
-          {/* Shelves & Study Notes */}
-          <section
-            className="mt-5 rounded border p-4"
-            style={{
-              borderColor: 'var(--border-hairline)',
-              backgroundColor: 'var(--bg-surface)'
-            }}
-          >
-            <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider">
-              <Bookmark className="h-3.5 w-3.5" style={{ color: 'var(--accent-ochre)' }} />
-              <span>Estanterías y Notas Rápidas</span>
-            </div>
+        <section
+          className="mt-5 rounded-md border p-4"
+          style={{ borderColor: 'var(--border-hairline)', backgroundColor: 'var(--bg-surface)' }}
+          aria-labelledby={`${uid}-shelves`}
+        >
+          <h3 id={`${uid}-shelves`} className="micro mb-3 flex items-center gap-1.5">
+            <Bookmark className="h-3.5 w-3.5" style={{ color: 'var(--accent-ochre)' }} aria-hidden="true" />
+            <span>Estanterías y notas</span>
+          </h3>
 
-            <div className="mb-3 flex flex-wrap gap-1.5">
-              {shelves.map((shelf) => {
-                const inShelf = memberShelfIds.has(shelf.id);
-                return (
-                  <button
-                    key={shelf.id}
-                    type="button"
-                    onClick={() => {
-                      onToggleShelf(shelf.id, publication);
-                      setActiveShelfId(shelf.id);
-                    }}
-                    className="inline-flex items-center gap-1.5 rounded border px-2.5 py-1 text-xs font-medium transition-colors"
-                    style={{
-                      borderColor: inShelf ? shelf.accent : 'var(--border-hairline)',
-                      backgroundColor: inShelf ? `${shelf.accent}1A` : 'var(--bg-card)',
-                      color: inShelf ? shelf.accent : 'var(--text-secondary)'
-                    }}
-                  >
-                    <span
-                      className="h-2 w-2 rounded-full"
-                      style={{ backgroundColor: shelf.accent }}
-                    />
-                    <span>{shelf.name}</span>
-                    {inShelf && <Check className="h-3 w-3" />}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="mt-2">
-              <div className="mb-1.5 flex items-center justify-between text-[11px]" style={{ color: 'var(--text-muted)' }}>
-                <span className="inline-flex items-center gap-1">
-                  <StickyNote className="h-3 w-3" /> Nota en estantería:
-                </span>
-                <select
-                  value={activeShelfId}
-                  onChange={(e) => setActiveShelfId(e.target.value)}
-                  className="rounded border px-1.5 py-0.5 text-[11px] outline-none"
-                  style={{
-                    borderColor: 'var(--border-hairline)',
-                    backgroundColor: 'var(--bg-card)',
-                    color: 'var(--text-primary)'
-                  }}
-                >
-                  {shelves.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <textarea
-                rows={3}
-                value={noteDraft}
-                onChange={(e) => setNoteDraft(e.target.value)}
-                placeholder="Anota citas clave, capítulos relevantes o ideas para tu investigación..."
-                className="w-full rounded border p-2.5 text-xs outline-none"
-                style={{
-                  borderColor: 'var(--border-hairline)',
-                  backgroundColor: 'var(--bg-card)',
-                  color: 'var(--text-primary)'
-                }}
-              />
-              <div className="mt-2 flex justify-end">
+          <div className="mb-3 flex flex-wrap gap-1.5">
+            {shelves.map((shelf) => {
+              const inShelf = memberShelfIds.has(shelf.id);
+              return (
                 <button
+                  key={shelf.id}
                   type="button"
-                  onClick={handleSaveNote}
-                  className="inline-flex items-center gap-1.5 rounded border px-3 py-1 text-xs font-medium transition-colors"
-                  style={{
-                    borderColor: noteSaved ? 'var(--accent-moss)' : 'var(--border-hairline)',
-                    backgroundColor: noteSaved ? 'rgba(77, 107, 83, 0.14)' : 'var(--bg-card)',
-                    color: noteSaved ? 'var(--accent-moss)' : 'var(--text-primary)'
-                  }}
+                  className="chip"
+                  aria-pressed={inShelf}
+                  onClick={() => handleToggleShelf(shelf, inShelf)}
                 >
-                  {noteSaved ? <Check className="h-3.5 w-3.5" /> : <StickyNote className="h-3.5 w-3.5" />}
-                  <span>{noteSaved ? 'Nota guardada' : 'Guardar nota en estantería'}</span>
+                  <span
+                    className="h-2 w-2 rounded-full"
+                    style={{ backgroundColor: safeHexColor(shelf.accent) }}
+                    aria-hidden="true"
+                  />
+                  <span>{shelf.name}</span>
+                  {inShelf ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : null}
                 </button>
-              </div>
-            </div>
-          </section>
-        </div>
-      </aside>
-    </div>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label htmlFor={`${uid}-note`} className="flex items-center gap-1 text-sm font-medium">
+              <StickyNote className="h-4 w-4" style={{ color: 'var(--accent-ochre)' }} aria-hidden="true" />
+              Nota en
+            </label>
+            <select
+              aria-label="Estantería de la nota"
+              value={activeShelfId}
+              onChange={(e) => {
+                setActiveShelfId(e.target.value);
+                setNoteDraft(noteFor(e.target.value));
+              }}
+              className="field min-w-0 flex-1 sm:flex-none"
+            >
+              {shelves.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <textarea
+            id={`${uid}-note`}
+            rows={3}
+            value={noteDraft}
+            onChange={(e) => setNoteDraft(e.target.value)}
+            placeholder="Escribe citas clave, capítulos útiles o ideas para tu investigación"
+            className="field mt-2"
+          />
+          <div className="mt-2 flex items-center justify-end gap-3">
+            <p role="status" className="text-xs" style={{ color: 'var(--accent-moss)' }}>
+              {noteSaved ? 'Nota guardada' : ''}
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                onSaveNote(activeShelfId, publication, noteDraft);
+                setNoteSaved(true);
+              }}
+              className="btn btn-quiet btn-sm"
+            >
+              <StickyNote className="h-4 w-4" aria-hidden="true" />
+              <span>Guardar nota</span>
+            </button>
+          </div>
+        </section>
+      </div>
+    </Modal>
   );
 }
