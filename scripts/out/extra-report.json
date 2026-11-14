@@ -1,0 +1,233 @@
+{
+  "generatedAt": "2026-11-14T20:32:25.386Z",
+  "args": {
+    "sources": [
+      "redalyc",
+      "doab",
+      "oa-books",
+      "oa-journals"
+    ],
+    "maxDialnet": 15000,
+    "maxDoab": 10000,
+    "maxRedalyc": 6400,
+    "maxUpn": 5000,
+    "maxClacso": 5000,
+    "maxOaBooks": 4500,
+    "maxOaJournals": 4000,
+    "maxDoabEn": 3000,
+    "doabPages": 603,
+    "dialnetScanFactor": 2,
+    "sample": 25,
+    "skipVerify": false,
+    "fresh": false
+  },
+  "totals": {
+    "rows": 18921,
+    "withPdf": 18921,
+    "withCover": 0,
+    "byCollectionCode": {
+      "redalyc": 6400,
+      "doab": 5428,
+      "oa-books": 4024,
+      "oa-journals": 3069
+    },
+    "byLanguage": {
+      "es": 10083,
+      "en": 7409,
+      "pt": 1402,
+      "other": 27
+    },
+    "byDocType": {
+      "article": 9469,
+      "book": 9452
+    },
+    "byCountryTop10": {
+      "Internacional": 7473,
+      "Colombia": 5454,
+      "México": 2963,
+      "Brasil": 1538,
+      "España": 688,
+      "Argentina": 337,
+      "Venezuela": 221,
+      "Chile": 96,
+      "Ecuador": 65,
+      "Costa Rica": 35
+    }
+  },
+  "reports": [
+    {
+      "source": "DOAB · OAPEN",
+      "endpoint": "https://library.oapen.org/oai/request (xoai) + https://directory.doabooks.org/oai/request (oai_dc)",
+      "status": "ok",
+      "note": "OAPEN bitstreams are not fetchable programmatically: 0/8 sample PDFs returned %PDF- (library.oapen.org: HTTP 403; library.oapen.org: HTTP 403). Stage dropped, no bypass attempted. DOAB directory: 0 records scanned, 5683 es/pt/en with a direct .pdf identifier, 5481 kept on 20 verified publisher hosts; hosts failing the PDF probe: works.hcommons.org (HTTP 403), www.funlam.edu.co (no %PDF- magic (text/html)), d3p9z3cj392tgc.cloudfront.net (fetch failed), library.oapen.org (HTTP 403), dspace.cuni.cz (The operation was aborted due to timeout), www.rowmaninternational.com (HTTP 403), www.edp-open.org (HTTP 403), www.openbookpublishers.com (HTTP 429 for https://www.openbookpublishers.com/10.11647/OBP.0194.pdf), static1.squarespace.com (HTTP 404), www.usmcu.edu (HTTP 403), norden.diva-portal.org (fetch failed).",
+      "harvested": 5428,
+      "scanned": 0,
+      "pdfSample": {
+        "tested": 25,
+        "ok": 25,
+        "rate": 1,
+        "failures": []
+      }
+    },
+    {
+      "source": "Redalyc",
+      "endpoint": "OpenAlex works mirror of Redalyc OAI (source S4377196100); native OAI not reachable",
+      "status": "ok",
+      "note": "Works with a known https://www.redalyc.org/pdf/<journal>/<article>.pdf location (about 6-11% of Redalyc works in OpenAlex), Colombian affiliations first.",
+      "harvested": 6400,
+      "scanned": 0,
+      "pdfSample": {
+        "tested": 25,
+        "ok": 24,
+        "rate": 0.96,
+        "failures": [
+          "www.redalyc.org: HTTP 404"
+        ]
+      }
+    },
+    {
+      "source": "OpenAlex Social Books",
+      "endpoint": "https://api.openalex.org/works",
+      "status": "ok",
+      "note": "OpenAlex verified repositories (Cambridge Univ. Press OA, LSE Research Online, Editora CRV eBooks, Editora Científica Digital, UNAD Colombia, MTA Library, IIASA PURE).",
+      "scanned": 5753,
+      "harvested": 4024,
+      "pdfSample": {
+        "tested": 25,
+        "ok": 21,
+        "rate": 0.84,
+        "failures": [
+          "www.cambridge.org: HTTP 503 for https://www.cambridge.org/core/services/aop-cambridge-core/content/",
+          "www.cambridge.org: The operation was aborted due to timeout",
+          "www.cambridge.org: no %PDF- magic (text/html)",
+          "www.editoracrv.com.br: HTTP 401"
+        ]
+      }
+    },
+    {
+      "source": "OpenAlex Scientific Journals",
+      "endpoint": "https://api.openalex.org/works",
+      "status": "ok",
+      "note": "OpenAlex verified repositories (Ciencia Latina, Documentación Administrativa (INAP), REALA (INAP), Rev. Española Derecho Canónico (UPSA)).",
+      "scanned": 3488,
+      "harvested": 3069,
+      "pdfSample": {
+        "tested": 25,
+        "ok": 24,
+        "rate": 0.96,
+        "failures": [
+          "revistas.upsa.es: HTTP 404"
+        ]
+      }
+    }
+  ],
+  "dupStats": {
+    "doab": {
+      "duplicatesDropped": 53,
+      "rejected": 0
+    },
+    "redalyc": {
+      "duplicatesDropped": 0,
+      "rejected": 0
+    },
+    "oa-books": {
+      "duplicatesDropped": 7,
+      "rejected": 0
+    },
+    "oa-journals": {
+      "duplicatesDropped": 24,
+      "rejected": 0
+    }
+  },
+  "coverProbe": {},
+  "hosts": {
+    "landing": [
+      "directory.doabooks.org",
+      "doi.org",
+      "pure.iiasa.ac.at",
+      "real.mtak.hu",
+      "repository.unad.edu.co",
+      "researchonline.lse.ac.uk",
+      "revistasonline.inap.es",
+      "www.cambridge.org",
+      "www.redalyc.org"
+    ],
+    "pdf": [
+      "assets.verlag.gta.arch.ethz.ch",
+      "cdn.prod.website-files.com",
+      "ciencialatina.org",
+      "downloads.editoracientifica.com.br",
+      "e-archivo.uc3m.es",
+      "editorialmarcaribe.es",
+      "edizionicafoscari.unive.it",
+      "eladd.org",
+      "intech-files.s3.amazonaws.com",
+      "melusina-pubs.fra1.digitaloceanspaces.com",
+      "mts.intechopen.com",
+      "pure.iiasa.ac.at",
+      "real.mtak.hu",
+      "repository.unad.edu.co",
+      "researchonline.lse.ac.uk",
+      "revistas.upsa.es",
+      "revistasonline.inap.es",
+      "sauyayinlari.sakarya.edu.tr",
+      "skyfox.co",
+      "sophiaeditions.com",
+      "www.berghahnbooks.com",
+      "www.cambridge.org",
+      "www.editoracientifica.com.br",
+      "www.editoracrv.com.br",
+      "www.ledizioni.it",
+      "www.logos-verlag.de",
+      "www.redalyc.org",
+      "www.sav.sk",
+      "www.seankingston.co.uk",
+      "www.vdu.lt",
+      "www.viella.it",
+      "www.zaphon.de"
+    ],
+    "cover": [],
+    "regexLines": [
+      "^assets\\.verlag\\.gta\\.arch\\.ethz\\.ch$",
+      "^cdn\\.prod\\.website-files\\.com$",
+      "^ciencialatina\\.org$",
+      "^directory\\.doabooks\\.org$",
+      "^doi\\.org$",
+      "^downloads\\.editoracientifica\\.com\\.br$",
+      "^e-archivo\\.uc3m\\.es$",
+      "^editorialmarcaribe\\.es$",
+      "^edizionicafoscari\\.unive\\.it$",
+      "^eladd\\.org$",
+      "^intech-files\\.s3\\.amazonaws\\.com$",
+      "^melusina-pubs\\.fra1\\.digitaloceanspaces\\.com$",
+      "^mts\\.intechopen\\.com$",
+      "^pure\\.iiasa\\.ac\\.at$",
+      "^real\\.mtak\\.hu$",
+      "^repository\\.unad\\.edu\\.co$",
+      "^researchonline\\.lse\\.ac\\.uk$",
+      "^revistas\\.upsa\\.es$",
+      "^revistasonline\\.inap\\.es$",
+      "^sauyayinlari\\.sakarya\\.edu\\.tr$",
+      "^skyfox\\.co$",
+      "^sophiaeditions\\.com$",
+      "^www\\.berghahnbooks\\.com$",
+      "^www\\.cambridge\\.org$",
+      "^www\\.editoracientifica\\.com\\.br$",
+      "^www\\.editoracrv\\.com\\.br$",
+      "^www\\.ledizioni\\.it$",
+      "^www\\.logos-verlag\\.de$",
+      "^www\\.redalyc\\.org$",
+      "^www\\.sav\\.sk$",
+      "^www\\.seankingston\\.co\\.uk$",
+      "^www\\.vdu\\.lt$",
+      "^www\\.viella\\.it$",
+      "^www\\.zaphon\\.de$"
+    ]
+  },
+  "http": {
+    "requests": 200,
+    "retries": 16,
+    "failures": 6
+  },
+  "elapsedSec": 533
+}

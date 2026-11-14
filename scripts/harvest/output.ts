@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { sanitizePublication } from '../../functions/publications';
+import { buildSearchText } from '../../functions/security';
 import { inferCountry, classifyOecdArea } from '../../src/lib/taxonomy';
 import type { Publication } from '../../src/types/publication';
 import { ROOT_DIR } from './cache';
@@ -122,9 +123,11 @@ const CONFLICT = `ON CONFLICT(id) DO UPDATE SET
     page_count = COALESCE(publications.page_count, excluded.page_count),
     updated_at = datetime('now')`.replace(/\n\s+/g, ' ');
 
+const CONFLICT_WITH_SEARCH = CONFLICT.replace("updated_at = datetime('now')", "search_text = excluded.search_text, updated_at = datetime('now')");
+
 const MAX_STATEMENT_BYTES = 90_000;
 
-export function insertStatement(p: Publication): string {
+export function insertStatement(p: Publication, withSearchText = false): string {
   const build = (abstract: string) => {
     const values = [
       lit(p.id), lit(p.oaiIdentifier ?? p.id), lit(p.title), lit(p.subtitle ?? null),
@@ -135,7 +138,10 @@ export function insertStatement(p: Publication): string {
       lit(p.scieloUrl), lit(p.pdfUrl ?? null), lit(p.epubUrl ?? null), lit(p.coverUrl ?? null),
       lit(p.pageCount ?? null), lit(p.citedByCount ?? 0), lit(p.sourceOrigin), lit(p.rawSetSpec ?? null)
     ];
-    return `INSERT INTO publications (${COLUMNS.join(', ')}, updated_at) VALUES (${values.join(', ')}, datetime('now')) ${CONFLICT};`;
+    if (!withSearchText) return `INSERT INTO publications (${COLUMNS.join(', ')}, updated_at) VALUES (${values.join(', ')}, datetime('now')) ${CONFLICT};`;
+    // search_text (migration 0005) is computed from the SAME (possibly shortened) abstract the row stores
+    const search = buildSearchText({ ...p, abstract });
+    return `INSERT INTO publications (${COLUMNS.join(', ')}, search_text, updated_at) VALUES (${values.join(', ')}, ${lit(search)}, datetime('now')) ${CONFLICT_WITH_SEARCH};`;
   };
   let abstract = p.abstract || '';
   let sql = build(abstract);
@@ -168,7 +174,7 @@ export function writeSeedChunks(pubs: Publication[], dir: string, chunkSize = 20
 
 type SqlValue = string | number | null;
 
-function parseInsertLine(line: string): Record<string, SqlValue> | null {
+export function parseInsertLine(line: string): Record<string, SqlValue> | null {
   const colsMatch = /^INSERT\s+(?:OR\s+\w+\s+)?INTO\s+publications\s*\(([^)]*)\)\s*VALUES\s*\(/i.exec(line);
   if (!colsMatch) return null;
   const cols = colsMatch[1].split(',').map((c) => c.trim());

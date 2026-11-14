@@ -33,6 +33,9 @@ export interface Rec {
   collectionCode?: string;
   /** Ids of articles etc. that have no SciELO book id */
   externalId?: string;
+  /** extra sources: journal / series title (country hint) and OAI set or ranking tag */
+  journal?: string;
+  setSpec?: string;
   origins: string[];
 }
 

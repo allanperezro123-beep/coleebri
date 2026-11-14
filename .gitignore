@@ -11,3 +11,5 @@ Thumbs.db
 .claude/
 scripts/.harvest-cache/
 public/pdfjs/
+public/covers/
+scripts/out/seed-extra/

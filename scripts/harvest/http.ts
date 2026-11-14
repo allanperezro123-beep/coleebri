@@ -10,7 +10,7 @@
 
 const CONTACT = (process.env.HARVEST_CONTACT_EMAIL || '').trim();
 export const USER_AGENT =
-  'Coleebri-Harvester/2.1 (+https://coleebri.pages.dev)' +
+  'Coleebri-Harvester/2.2 (+https://coleebri.pages.dev)' +
   (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(CONTACT) ? ` (mailto:${CONTACT})` : '');
 
 /** Minimum milliseconds between two request STARTS to the same host. */
@@ -18,9 +18,11 @@ const HOST_DELAY_MS: Array<[RegExp, number]> = [
   [/^api\.crossref\.org$/, 250],
   [/^api\.openalex\.org$/, 150],
   [/(^|\.)scielo\.org$/, 1000], // books.scielo.org, static.scielo.org
-  [/^doi\.org$/, 200]
+  [/^doi\.org$/, 200],
+  [/(^|\.)(dialnet\.unirioja\.es|redalyc\.org|oapen\.org|doabooks\.org)$/, 600]
 ];
-const DEFAULT_DELAY_MS = 400;
+// >= 500 ms between request starts to every host we have not tuned explicitly (DOAB publishers, UPN, ...)
+const DEFAULT_DELAY_MS = 500;
 
 const nextSlot = new Map<string, number>();
 

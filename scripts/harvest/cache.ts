@@ -53,7 +53,10 @@ export type HarvestState = Record<string, SourceState>;
 
 const STATE_FILE = () => path.join(CACHE_DIR, 'state.json');
 
-export function loadState(): HarvestState {
+let sharedState: HarvestState | null = null;
+let tmpSeq = 0;
+
+function readDiskState(): HarvestState {
   try {
     return JSON.parse(fs.readFileSync(STATE_FILE(), 'utf8')) as HarvestState;
   } catch {
@@ -61,8 +64,30 @@ export function loadState(): HarvestState {
   }
 }
 
+export function loadState(): HarvestState {
+  if (!sharedState) sharedState = readDiskState();
+  return sharedState;
+}
+
 export function saveState(state: HarvestState): void {
-  const tmp = `${STATE_FILE()}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(state, null, 2));
-  fs.renameSync(tmp, STATE_FILE());
+  if (!sharedState) sharedState = readDiskState();
+  if (state !== sharedState) Object.assign(sharedState, state);
+  const payload = JSON.stringify(sharedState, null, 2);
+  const target = STATE_FILE();
+  const tmp = `${target}.${process.pid}.${++tmpSeq}.tmp`;
+  fs.writeFileSync(tmp, payload);
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      fs.renameSync(tmp, target);
+      return;
+    } catch {
+      // Windows AV/concurrent readers can briefly lock renameSync targets.
+    }
+  }
+  try {
+    fs.rmSync(tmp, { force: true });
+  } catch {
+    // ignore cleanup error
+  }
+  fs.writeFileSync(target, payload);
 }
