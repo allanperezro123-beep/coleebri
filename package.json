@@ -1,6 +1,6 @@
 {
   "name": "coleebri",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "type": "module",
   "description": "Coleebri — Biblioteca académica abierta conectada con SciELO, OpenAlex y Cloudflare Pages + D1, con identidad visual inspirada en el colibrí de la Universidad Pedagógica Nacional de Colombia.",
@@ -10,11 +10,24 @@
     "typecheck": "tsc --noEmit && tsc -p functions/tsconfig.json --noEmit",
     "preview": "npx wrangler pages dev dist",
     "sync:scielo": "tsx scripts/sync-scielo.ts",
+    "harvest": "tsx scripts/harvest/index.ts",
     "db:migrate:local": "wrangler d1 execute coleebri-db --local --file=migrations/0001_init.sql",
     "db:seed:local": "wrangler d1 execute coleebri-db --local --file=migrations/0002_seed.sql",
     "db:migrate:remote": "wrangler d1 execute coleebri-db --remote --file=migrations/0001_init.sql",
     "db:seed:remote": "wrangler d1 execute coleebri-db --remote --file=migrations/0002_seed.sql",
-    "deploy": "npm run build && wrangler pages deploy dist --project-name=coleebri --branch=main"
+    "db:migrate:003:local": "wrangler d1 execute coleebri-db --local --file=migrations/0003_private_shelves.sql",
+    "db:migrate:003:remote": "wrangler d1 execute coleebri-db --remote --file=migrations/0003_private_shelves.sql",
+    "db:backfill:local": "wrangler d1 execute coleebri-db --local --file=migrations/0004_country_backfill.sql",
+    "db:backfill:remote": "wrangler d1 execute coleebri-db --remote --file=migrations/0004_country_backfill.sql",
+    "db:seed:chunks:local": "tsx scripts/apply-seed-chunks.ts --local",
+    "db:seed:chunks:remote": "tsx scripts/apply-seed-chunks.ts --remote",
+    "deploy": "npm run build && wrangler pages deploy dist --project-name=coleebri --branch=main",
+    "db:migrate:005:local": "wrangler d1 execute coleebri-db --local --file=migrations/0005_search_text.sql",
+    "db:migrate:005:remote": "wrangler d1 execute coleebri-db --remote --file=migrations/0005_search_text.sql",
+    "predev": "node scripts/copy-pdfjs-assets.mjs",
+    "prebuild": "node scripts/copy-pdfjs-assets.mjs",
+    "db:reindex:local": "tsx scripts/reindex-publications.ts --local",
+    "db:reindex:remote": "tsx scripts/reindex-publications.ts --remote"
   },
   "dependencies": {
     "fast-xml-parser": "^5.12.1",

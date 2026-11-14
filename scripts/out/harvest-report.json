@@ -1,0 +1,179 @@
+{
+  "generatedAt": "2026-11-14T06:47:04.211Z",
+  "args": {
+    "types": [
+      "book"
+    ],
+    "max": "unlimited",
+    "skipLanding": false,
+    "withArticles": false,
+    "maxLanding": 1500
+  },
+  "rawRecords": 4480,
+  "doiResolution": {
+    "candidates": 51,
+    "requestedThisRun": 51,
+    "resolved": 39,
+    "failed": 12
+  },
+  "landing": {
+    "cachedTotal": 879,
+    "cachedOk": 826,
+    "candidates": 879,
+    "fetched": 879,
+    "ok": 826,
+    "failed": 53
+  },
+  "perSource": {
+    "openalex_book": {
+      "records": 2268,
+      "pagesThisRun": 24,
+      "withPdf": 1111
+    },
+    "crossref": {
+      "records": 2212,
+      "pagesThisRun": 5,
+      "withPdf": 1285,
+      "pdfLinkIdMismatchDiscarded": 9
+    },
+    "opds": {
+      "records": 0
+    }
+  },
+  "skippedSources": [
+    {
+      "source": "oai.books.scielo.org (OAI-PMH)",
+      "reason": "Expired TLS certificate. The old script bypassed it with rejectUnauthorized:false; that bypass was removed and the source is not used."
+    },
+    {
+      "source": "OPDS",
+      "reason": "OPDS https://opds.livros.scielo.org/opds/new skipped: TLS certificate invalid/expired: TLS verification failed for opds.livros.scielo.org (CERT_HAS_EXPIRED). Not retrying; TLS is never bypassed."
+    },
+    {
+      "source": "scielo.org.co OAI-PMH",
+      "reason": "Times out (journal articles only; out of scope for this run)."
+    }
+  ],
+  "quota": [],
+  "dedupe": {
+    "inputRecords": 4480,
+    "finalRecords": 2277,
+    "merges": 2203,
+    "mergesByKey": {
+      "sb": 1729,
+      "doi": 474
+    }
+  },
+  "sanitizerDropped": {},
+  "totals": {
+    "publications": 2277,
+    "withFullText": 1478,
+    "withoutFullText": 799,
+    "withEpub": 87,
+    "withAbstract": 2262
+  },
+  "perCountry": {
+    "Brasil": 2131,
+    "Colombia": 95,
+    "Ecuador": 46,
+    "Internacional": 3,
+    "México": 1,
+    "Portugal": 1
+  },
+  "perCountryWithFullText": {
+    "Brasil": 1391,
+    "Colombia": 42,
+    "Ecuador": 41,
+    "Internacional": 3,
+    "Portugal": 1
+  },
+  "perLanguage": {
+    "pt": 2057,
+    "es": 191,
+    "en": 15,
+    "other": 14
+  },
+  "perDocType": {
+    "book": 2277
+  },
+  "perArea": {
+    "social-sciences": 1109,
+    "humanities": 673,
+    "medical-health": 340,
+    "natural-sciences": 70,
+    "engineering-tech": 43,
+    "agricultural-sciences": 42
+  },
+  "seed": {
+    "chunks": 12,
+    "files": [
+      "seed_001.sql",
+      "seed_002.sql",
+      "seed_003.sql",
+      "seed_004.sql",
+      "seed_005.sql",
+      "seed_006.sql",
+      "seed_007.sql",
+      "seed_008.sql",
+      "seed_009.sql",
+      "seed_010.sql",
+      "seed_011.sql",
+      "seed_012.sql"
+    ],
+    "maxStatementBytes": 10682
+  },
+  "backfill": {
+    "legacyRows": 117,
+    "updates": 111,
+    "byCountry": {
+      "Brasil": 92,
+      "Colombia": 17,
+      "Internacional": 6,
+      "España": 2
+    }
+  },
+  "featured": {
+    "count": 60,
+    "byCountry": {
+      "Colombia": 30,
+      "Brasil": 15,
+      "Ecuador": 14,
+      "Portugal": 1
+    },
+    "byLanguage": {
+      "es": 45,
+      "pt": 15
+    },
+    "byArea": {
+      "social-sciences": 40,
+      "humanities": 11,
+      "natural-sciences": 4,
+      "medical-health": 4,
+      "agricultural-sciences": 1
+    }
+  },
+  "pdfSampleVerification": {
+    "sampleSize": 30,
+    "passed": 29,
+    "passRate": 0.967,
+    "failures": [
+      {
+        "url": "https://books.scielo.org/id/2sbzx/pdf/9786557145135.pdf",
+        "detail": "HTTP 404"
+      }
+    ],
+    "featuredCandidatesChecked": 96,
+    "featuredCandidatesPassed": 94,
+    "coverSample": {
+      "size": 10,
+      "ok": 10
+    }
+  },
+  "http": {
+    "requests": 1105,
+    "retries": 12,
+    "failures": 3
+  },
+  "elapsedSeconds": 37435,
+  "cacheDir": "scripts\\.harvest-cache"
+}
