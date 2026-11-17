@@ -60,11 +60,21 @@ const SOURCES: Record<string, Omit<SourceInfo, 'code'>> = {
     label: 'Revistas científicas OA',
     short: 'Revistas OA',
     description: 'Artículos arbitrados de revistas científicas iberoamericanas (Ciencia Latina, INAP y UPSA).'
+  },
+  archive: {
+    label: 'Clásicos · Internet Archive',
+    short: 'Clásicos IA',
+    description: 'Ediciones históricas de dominio público en filosofía y literatura universal y colombiana.'
+  },
+  marxists: {
+    label: 'Archivo Marxists (OA)',
+    short: 'Marxists OA',
+    description: 'Obras clásicas de teoría política y economía en acceso abierto de Marxists Internet Archive.'
   }
 };
 
 /** Order in which the quick-filter chips are shown. */
-export const SOURCE_ORDER = ['books', 'doab', 'oa-books', 'redalyc', 'oa-journals', 'dialnet', 'upn', 'clacso'] as const;
+export const SOURCE_ORDER = ['books', 'doab', 'oa-books', 'archive', 'marxists', 'redalyc', 'oa-journals', 'dialnet', 'upn', 'clacso'] as const;
 
 const SCIELO_PREFIX = 'scielo-';
 
